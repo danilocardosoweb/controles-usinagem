@@ -799,6 +799,86 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     }, 500)
   }
 
+  // Buscar apontamento por Rack Acabado para reimpressão
+  const buscarRackParaReimpressao = async () => {
+    const rack = String(reimpRackBusca || '').trim().toUpperCase()
+    if (!rack) return
+
+    const preencherForm = (encontrado) => {
+      setReimpRackResultado(encontrado)
+      setReimpRackForm({
+        cliente: encontrado.cliente || '',
+        produto: encontrado.produto || encontrado.codigoPerfil || '',
+        comprimento_acabado_mm: encontrado.comprimento_acabado_mm || '',
+        pedido_seq: encontrado.ordemTrabalho || encontrado.ordem_trabalho || encontrado.pedido_seq || '',
+        pedido_cliente: encontrado.pedido_cliente || encontrado.pedidoCliente || '',
+        quantidade: encontrado.quantidade || '',
+        rack_acabado: encontrado.rack_acabado || encontrado.rackAcabado || '',
+        dureza_material: encontrado.dureza_material || '',
+        lote: encontrado.lote || '',
+        lote_externo: encontrado.lote_externo || encontrado.loteExterno || '',
+        codigo_produto_cliente: encontrado.codigo_produto_cliente || encontrado.codigoProdutoCliente || '',
+      })
+      setReimpRackEditando(false)
+    }
+
+    // Buscar nos apontamentos já carregados
+    const encontrado = (apontamentosDB || []).find(a => {
+      const rackAcab = String(a.rack_acabado || a.rackAcabado || '').trim().toUpperCase()
+      return rackAcab === rack
+    })
+
+    if (encontrado) {
+      preencherForm(encontrado)
+      return
+    }
+
+    // Fallback: buscar diretamente no Supabase
+    try {
+      const resultado = await supabaseService.getByIndex('apontamentos', 'rack_acabado', rack)
+      if (resultado && resultado.length > 0) {
+        preencherForm(resultado[0])
+        return
+      }
+    } catch (err) {
+      console.error('Erro ao buscar rack no Supabase:', err)
+    }
+
+    setReimpRackResultado('NOT_FOUND')
+    setReimpRackForm({})
+  }
+
+  const imprimirReimpRack = () => {
+    const dados = reimpRackEditando ? reimpRackForm : { ...reimpRackResultado, ...reimpRackForm }
+    const item = dados.produto || ''
+    const medida = dados.comprimento_acabado_mm ? `${dados.comprimento_acabado_mm} mm` : extrairComprimentoAcabado(item)
+    const dataHoraProducao = dados.inicio || dados.data_inicio || dados.data_inicio_producao || ''
+    const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
+    const turno = dados.turno || calcularTurno(dataHoraProducao)
+
+    const html = buildFormularioIdentificacaoHtml({
+      lote: dados.lote || '',
+      loteMP: dados.lote_externo || '',
+      cliente: dados.cliente || '',
+      item,
+      codigoCliente: dados.codigo_produto_cliente || '',
+      medida,
+      pedidoTecno: dados.pedido_seq || '',
+      pedidoCli: dados.pedido_cliente || '',
+      qtde: dados.quantidade || '',
+      pallet: dados.rack_acabado || '',
+      dureza: dados.dureza_material || 'N/A',
+      dataProducao,
+      dataHoraProducao,
+      turno
+    })
+
+    const printWindow = window.open('', '_blank', 'width=1100,height=800')
+    printWindow.document.write(html)
+    printWindow.document.close()
+    setTimeout(() => { printWindow.print() }, 500)
+  }
+
   // Finaliza o contador e pergunta se usa o tempo no apontamento
   const handleStopTimer = () => {
     const end = new Date()
@@ -858,6 +938,12 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [menuReimpressaoAberto, setMenuReimpressaoAberto] = useState(null)
   const [tipoReimpressao, setTipoReimpressao] = useState('formulario')
   const [reimpressaoDistribuicao, setReimpressaoDistribuicao] = useState([{ qtdPorEtiqueta: '', qtdEtiquetas: '1' }])
+  // Modal de reimpressão por Rack Acabado
+  const [reimpRackAberto, setReimpRackAberto] = useState(false)
+  const [reimpRackBusca, setReimpRackBusca] = useState('')
+  const [reimpRackResultado, setReimpRackResultado] = useState(null)
+  const [reimpRackEditando, setReimpRackEditando] = useState(false)
+  const [reimpRackForm, setReimpRackForm] = useState({})
   const [showTimerModal, setShowTimerModal] = useState(false)
   // Modal de visualização da foto da ferramenta
   const [fotoModalAberta, setFotoModalAberta] = useState(false)
@@ -3289,7 +3375,24 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       
       <div className="bg-white rounded-lg shadow p-4 form-compact">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-700">{subtituloForm}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-700">{subtituloForm}</h2>
+            <button
+              type="button"
+              className="p-1.5 rounded text-gray-300 hover:bg-blue-50 hover:text-blue-500 transition-colors"
+              title="Reimprimir formulário por Rack Acabado"
+              onClick={() => {
+                setReimpRackAberto(true)
+                setReimpRackBusca('')
+                setReimpRackResultado(null)
+                setReimpRackEditando(false)
+                setReimpRackForm({})
+              }}
+              aria-label="Reimprimir formulário"
+            >
+              <FaPrint className="w-3.5 h-3.5" />
+            </button>
+          </div>
           {formData.ordemTrabalho && (
             <div className="flex items-center gap-2">
               <div
@@ -4075,6 +4178,133 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 <FaPrint />
                 Reimprir
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reimpressão por Rack Acabado */}
+      {reimpRackAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] px-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg form-compact">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                <FaRedo className="text-blue-500" />
+                Reimprimir Formulário
+              </h2>
+              <button onClick={() => setReimpRackAberto(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="p-4 space-y-3">
+              {/* Busca */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Digite o Rack Acabado (ex: USI-1314)"
+                  value={reimpRackBusca}
+                  onChange={(e) => setReimpRackBusca(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === 'Enter' && buscarRackParaReimpressao()}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                  autoFocus
+                />
+                <button
+                  onClick={buscarRackParaReimpressao}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm flex items-center gap-1"
+                >
+                  <FaSearch className="w-3 h-3" /> Buscar
+                </button>
+              </div>
+
+              {/* Resultado: Não encontrado */}
+              {reimpRackResultado === 'NOT_FOUND' && (
+                <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">
+                  Rack não encontrado nos apontamentos carregados.
+                </div>
+              )}
+
+              {/* Resultado: Encontrado */}
+              {reimpRackResultado && reimpRackResultado !== 'NOT_FOUND' && (
+                <>
+                  <div className="bg-gray-50 border border-gray-200 rounded p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-500 uppercase">Dados do Apontamento</span>
+                      <button
+                        type="button"
+                        onClick={() => setReimpRackEditando(!reimpRackEditando)}
+                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                      >
+                        <FaEdit className="w-3 h-3" />
+                        {reimpRackEditando ? 'Cancelar edição' : 'Editar para impressão'}
+                      </button>
+                    </div>
+
+                    {!reimpRackEditando ? (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                        <div><span className="text-gray-500">Rack:</span> <strong>{reimpRackForm.rack_acabado}</strong></div>
+                        <div><span className="text-gray-500">Lote:</span> <strong>{reimpRackForm.lote}</strong></div>
+                        <div><span className="text-gray-500">Cliente:</span> <strong>{reimpRackForm.cliente}</strong></div>
+                        <div><span className="text-gray-500">Produto:</span> <strong className="text-xs">{reimpRackForm.produto}</strong></div>
+                        <div><span className="text-gray-500">Pedido:</span> <strong>{reimpRackForm.pedido_seq}</strong></div>
+                        <div><span className="text-gray-500">Pedido Cli:</span> <strong>{reimpRackForm.pedido_cliente}</strong></div>
+                        <div><span className="text-gray-500">Quantidade:</span> <strong>{reimpRackForm.quantidade}</strong></div>
+                        <div><span className="text-gray-500">Dureza:</span> <strong>{reimpRackForm.dureza_material || 'N/A'}</strong></div>
+                        <div><span className="text-gray-500">Lote Ext:</span> <strong>{reimpRackForm.lote_externo || '-'}</strong></div>
+                        <div><span className="text-gray-500">Cód. Cliente:</span> <strong>{reimpRackForm.codigo_produto_cliente || '-'}</strong></div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { key: 'rack_acabado', label: 'Rack Acabado' },
+                          { key: 'lote', label: 'Lote' },
+                          { key: 'cliente', label: 'Cliente' },
+                          { key: 'produto', label: 'Produto' },
+                          { key: 'pedido_seq', label: 'Pedido/Seq' },
+                          { key: 'pedido_cliente', label: 'Pedido Cliente' },
+                          { key: 'quantidade', label: 'Quantidade' },
+                          { key: 'dureza_material', label: 'Dureza' },
+                          { key: 'lote_externo', label: 'Lote Externo' },
+                          { key: 'codigo_produto_cliente', label: 'Cód. Cliente' },
+                          { key: 'comprimento_acabado_mm', label: 'Medida (mm)' },
+                        ].map(({ key, label }) => (
+                          <div key={key}>
+                            <label className="block text-[10px] font-medium text-gray-500 mb-0.5">{label}</label>
+                            <input
+                              type="text"
+                              value={reimpRackForm[key] || ''}
+                              onChange={(e) => setReimpRackForm(prev => ({ ...prev, [key]: e.target.value }))}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {reimpRackEditando && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-2 text-xs text-amber-700">
+                      As alterações são apenas para esta impressão e não modificam o apontamento original.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Botões */}
+            <div className="flex gap-3 p-4 bg-gray-50 border-t border-gray-200">
+              <button
+                onClick={() => setReimpRackAberto(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded hover:bg-gray-100 text-sm"
+              >
+                Fechar
+              </button>
+              {reimpRackResultado && reimpRackResultado !== 'NOT_FOUND' && (
+                <button
+                  onClick={imprimirReimpRack}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium flex items-center justify-center gap-2 text-sm"
+                >
+                  <FaPrint className="w-3.5 h-3.5" />
+                  Imprimir Formulário
+                </button>
+              )}
             </div>
           </div>
         </div>
