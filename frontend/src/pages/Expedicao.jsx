@@ -148,7 +148,10 @@ export default function Expedicao() {
     
     // Também incluir racks de apontamentos que foram marcados com romaneio_numero
     const apontamentosComRomaneio = (Array.isArray(apontamentos) ? apontamentos : [])
-      .filter(a => a.romaneio_numero && String(a.romaneio_numero).trim().length > 0)
+      .filter(a => {
+        const rn = String(a.romaneio_numero || '').trim()
+        return rn.length > 0 && !/^0+$/.test(rn)
+      })
       .map(a => String(a.rack_acabado || a.rackAcabado || a.rack_ou_pallet || a.rackOuPallet || '').trim().toUpperCase())
       .filter(rack => rack.length > 0)
     
@@ -195,7 +198,8 @@ export default function Expedicao() {
         
         // Excluir racks que já foram expedidos ou marcados com romaneio_numero
         if (racksExpedidosSet.has(rackNormalizado)) return false
-        if (a.romaneio_numero && String(a.romaneio_numero).trim().length > 0) return false
+        const rnVal = String(a.romaneio_numero || '').trim()
+        if (rnVal.length > 0 && !/^0+$/.test(rnVal)) return false
         
         return true
       })
@@ -672,44 +676,74 @@ export default function Expedicao() {
     alert('✅ Correção salva com sucesso!')
   }
 
-  const cancelarRomaneio = async (romaneio) => {
-    const confirmado = window.confirm(
-      `Tem certeza que deseja cancelar o romaneio ${romaneio.numero_romaneio}?\n\nEsta ação não pode ser desfeita.`
-    )
-    if (!confirmado) return
+  // Voltar romaneio um passo atrás no fluxo:
+  // expedido → (só via restaurar, somente admin)
+  // conferido → pendente (racks permanecem presos, conferência pode ser refeita)
+  // pendente → cancelado (racks liberados para disponíveis)
+  const voltarPassoRomaneio = async (romaneio) => {
+    const isConferido = romaneio.status === 'conferido' || romaneio.status === 'conferido_divergencia'
+    const isPendente = romaneio.status === 'pendente'
 
-    try {
-      // 1. Buscar itens do romaneio para saber quais apontamentos remover
-      const { data: itens, error: erroBusca } = await supabaseService.supabase
-        .from('expedicao_romaneio_itens')
-        .select('apontamento_id')
-        .eq('romaneio_id', romaneio.id)
-      if (erroBusca) throw erroBusca
-
-      // 2. Remover romaneio_numero dos apontamentos para liberar os racks
-      if (itens && itens.length > 0) {
-        const apontamentoIds = itens.map(i => i.apontamento_id).filter(Boolean)
-        if (apontamentoIds.length > 0) {
-          const { error: erroApt } = await supabaseService.supabase
-            .from('apontamentos')
-            .update({ romaneio_numero: null })
-            .in('id', apontamentoIds)
-          if (erroApt) throw erroApt
-        }
+    if (isConferido) {
+      const confirmado = window.confirm(
+        `Desfazer conferência do romaneio ${romaneio.numero_romaneio}?\n\n` +
+        `O romaneio voltará para status PENDENTE.\n` +
+        `Os racks permanecerão reservados neste romaneio e poderão ser conferidos novamente.`
+      )
+      if (!confirmado) return
+      try {
+        await supabaseService.supabase
+          .from('expedicao_romaneios')
+          .update({ status: 'pendente', data_conferencia: null, usuario_conferencia: null })
+          .eq('id', romaneio.id)
+        // Resetar status_item dos itens para pendente
+        await supabaseService.supabase
+          .from('expedicao_romaneio_itens')
+          .update({ status_item: 'pendente', quantidade_conferida: null, observacao_item: null })
+          .eq('romaneio_id', romaneio.id)
+        await loadRomaneios()
+        await loadRomaneioItens()
+      } catch (erro) {
+        alert('Erro ao desfazer conferência: ' + erro.message)
       }
+    } else if (isPendente) {
+      const confirmado = window.confirm(
+        `Cancelar o romaneio ${romaneio.numero_romaneio}?\n\n` +
+        `Os racks voltarão a ficar DISPONÍVEIS para um novo romaneio.`
+      )
+      if (!confirmado) return
+      try {
+        // 1. Buscar itens do romaneio para liberar os apontamentos
+        const { data: itens, error: erroBusca } = await supabaseService.supabase
+          .from('expedicao_romaneio_itens')
+          .select('apontamento_id')
+          .eq('romaneio_id', romaneio.id)
+        if (erroBusca) throw erroBusca
 
-      // 3. Cancelar o romaneio
-      const { error } = await supabaseService.supabase
-        .from('expedicao_romaneios')
-        .update({ status: 'cancelado' })
-        .eq('id', romaneio.id)
-      if (error) throw error
-      
-      await loadRomaneios()
-      // Recarregar apontamentos para atualizar a lista de racks disponíveis
-      window.location.reload()
-    } catch (erro) {
-      alert('Erro ao cancelar romaneio: ' + erro.message)
+        // 2. Remover romaneio_numero dos apontamentos → racks voltam para disponíveis
+        if (itens && itens.length > 0) {
+          const apontamentoIds = itens.map(i => i.apontamento_id).filter(Boolean)
+          if (apontamentoIds.length > 0) {
+            const { error: erroApt } = await supabaseService.supabase
+              .from('apontamentos')
+              .update({ romaneio_numero: null })
+              .in('id', apontamentoIds)
+            if (erroApt) throw erroApt
+          }
+        }
+
+        // 3. Marcar romaneio como cancelado
+        const { error } = await supabaseService.supabase
+          .from('expedicao_romaneios')
+          .update({ status: 'cancelado' })
+          .eq('id', romaneio.id)
+        if (error) throw error
+
+        await loadRomaneios()
+        window.location.reload()
+      } catch (erro) {
+        alert('Erro ao cancelar romaneio: ' + erro.message)
+      }
     }
   }
 
@@ -1300,15 +1334,23 @@ export default function Expedicao() {
                           Expedir
                         </button>
                       )}
-                      {rom.status !== 'expedido' && rom.status !== 'cancelado' && (
+                      {rom.status === 'conferido' || rom.status === 'conferido_divergencia' ? (
                         <button
-                          onClick={() => cancelarRomaneio(rom)}
+                          onClick={() => voltarPassoRomaneio(rom)}
+                          className="text-orange-500 hover:text-orange-700 font-medium flex items-center gap-1"
+                          title="Desfazer conferência — volta para Pendente"
+                        >
+                          <FaUndo className="w-3 h-3" /> Desfazer
+                        </button>
+                      ) : rom.status === 'pendente' ? (
+                        <button
+                          onClick={() => voltarPassoRomaneio(rom)}
                           className="text-red-500 hover:text-red-700 font-medium flex items-center gap-1"
-                          title="Cancelar romaneio"
+                          title="Cancelar romaneio — racks voltam para disponíveis"
                         >
                           <FaTimes className="w-3 h-3" /> Cancelar
                         </button>
-                      )}
+                      ) : null}
                       {user?.nivel_acesso === 'admin' || user?.role === 'admin' ? (
                         <button
                           onClick={() => deletarRomaneio(rom)}
@@ -1927,6 +1969,7 @@ export default function Expedicao() {
                 </thead>
                 <tbody>
                   {[...clienteSelecionadoDetalhes.racks]
+                    .filter(rack => rack.totalPecas >= 10)
                     .sort((a, b) => {
                       const dataA = a.apontamentos[0]?.created_at || ''
                       const dataB = b.apontamentos[0]?.created_at || ''

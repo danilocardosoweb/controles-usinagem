@@ -26,6 +26,7 @@ function GeradorRomaneio({
   const [quantidadeKits, setQuantidadeKits] = useState(1)
   const [simulacao, setSimulacao] = useState(null)
   const [gerando, setGerando] = useState(false)
+  const [quantidadesExternas, setQuantidadesExternas] = useState({})
 
   // Debug: Log kits recebidos
   React.useEffect(() => {
@@ -60,7 +61,7 @@ function GeradorRomaneio({
     )
   }, [kits, clienteSelecionado])
 
-  // Agrupar apontamentos por FERRAMENTA+COMPRIMENTO, FILTRANDO POR CLIENTE
+  // Agrupar apontamentos por PRODUTO+COMPRIMENTO, FILTRANDO POR CLIENTE
   const paletesDisponiveis = useMemo(() => {
     const agrupado = {}
     
@@ -77,18 +78,17 @@ function GeradorRomaneio({
     }
     
     apontamentosDoCliente.forEach(apt => {
-      // Extrair ferramenta e comprimento do produto
-      const ferramenta = extrairFerramenta(apt.produto)
+      const produto = String(apt.produto || '').trim().toUpperCase()
       const comprimento = apt.comprimento || extrairComprimento(apt.produto)
       
-      // Usar ferramenta + comprimento como chave (compatível com kit)
-      const chave = `${ferramenta}|${comprimento}`
+      // Usar produto completo + comprimento como chave (compatível com componentes do kit)
+      const chave = `${produto}|${comprimento}`
       
       if (!agrupado[chave]) {
         agrupado[chave] = {
-          ferramenta,
+          ferramenta: extrairFerramenta(apt.produto),
+          produto,
           comprimento,
-          produto: apt.produto, // Guardar produto original para referência
           quantidade: 0,
           racks: [],
         }
@@ -126,7 +126,7 @@ function GeradorRomaneio({
     console.log('🎯 Primeiro palete:', paletesDisponiveis[0])
     console.log('🎯 Componentes do kit:', kit.componentes)
 
-    const calculo = calcularKitsCompletos(paletesDisponiveis, kit.componentes || [])
+    const calculo = calcularKitsCompletos(paletesDisponiveis, kit.componentes || [], quantidadesExternas)
     
     console.log('🎯 Resultado do cálculo:', calculo)
     
@@ -163,7 +163,8 @@ function GeradorRomaneio({
         console.log(`   - Rack: ${palete.rack}, Quantidade: ${quantidadeDoParlete}/${palete.quantidadeDisponivel}`)
 
         paletesParaSeparar.push({
-          ferramenta: item.componente,
+          produto: item.componente,
+          ferramenta: palete.ferramenta || item.componente,
           comprimento: item.comprimento,
           produtoOriginal: palete.produto || palete.produtoOriginal,
           quantidadeNecessaria: quantidadeDoParlete,
@@ -222,6 +223,7 @@ function GeradorRomaneio({
       setKitSelecionado('')
       setQuantidadeKits(1)
       setSimulacao(null)
+      setQuantidadesExternas({})
       onClose()
     } catch (error) {
       console.error('Erro ao gerar romaneio:', error)
@@ -266,6 +268,7 @@ function GeradorRomaneio({
                 setClienteSelecionado(novoCliente)
                 setKitSelecionado('')
                 setSimulacao(null)
+                setQuantidadesExternas({})
               }}
               className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
             >
@@ -289,6 +292,7 @@ function GeradorRomaneio({
                 onChange={(e) => {
                   setKitSelecionado(e.target.value)
                   setSimulacao(null)
+                  setQuantidadesExternas({})
                 }}
                 className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
               >
@@ -317,9 +321,9 @@ function GeradorRomaneio({
                   paletesDisponiveis.map((palete, idx) => (
                     <div key={idx} className="flex items-center justify-between bg-white p-2 rounded border border-gray-200 text-xs">
                       <div>
-                        <span className="font-bold text-gray-800">{palete.ferramenta}</span>
+                        <span className="font-bold text-gray-800">{palete.produto}</span>
                         <span className="text-gray-500 ml-2">({palete.comprimento} mm)</span>
-                        <span className="text-[10px] text-gray-400 block">{palete.racks.length} racks</span>
+                        <span className="text-[10px] text-gray-400 block">{palete.ferramenta} | {palete.racks.length} racks</span>
                       </div>
                       <span className="font-bold text-blue-600">{palete.quantidade} un</span>
                     </div>
@@ -332,6 +336,43 @@ function GeradorRomaneio({
               </div>
             </div>
           )}
+
+          {/* Componentes Externos - campos de quantidade */}
+          {kitSelecionado && (() => {
+            const kit = kits.find(k => k.id === kitSelecionado)
+            const externos = (kit?.componentes || []).filter(c => c.origem === 'externo')
+            if (externos.length === 0) return null
+            return (
+              <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+                <h3 className="text-sm font-bold text-orange-800 mb-3">
+                  📦 Itens Externos (Extrusão de Longos)
+                </h3>
+                <p className="text-xs text-orange-600 mb-3">Informe a quantidade disponível. Deixe em branco para não limitar.</p>
+                <div className="space-y-2">
+                  {externos.map((comp, idx) => {
+                    const chave = `${String(comp.produto).trim().toUpperCase()}|${String(comp.comprimento || '').trim()}`
+                    return (
+                      <div key={idx} className="flex items-center gap-3 bg-white p-2 rounded border border-orange-200">
+                        <div className="flex-1">
+                          <span className="text-xs font-bold text-gray-800">{comp.produto}</span>
+                          <span className="text-xs text-gray-500 ml-2">({comp.comprimento} mm)</span>
+                          <span className="text-[10px] text-orange-500 ml-2">{comp.quantidade_por_kit} un/kit</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Qtd disponível"
+                          value={quantidadesExternas[chave] || ''}
+                          onChange={(e) => setQuantidadesExternas(prev => ({ ...prev, [chave]: e.target.value }))}
+                          className="w-32 rounded border border-orange-300 px-2 py-1 text-xs text-right font-bold focus:border-orange-500 focus:outline-none"
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Botão Simular */}
           {kitSelecionado && (
@@ -396,7 +437,18 @@ function GeradorRomaneio({
                         <span className="text-blue-600 font-bold">{item.quantidadeDisponivel} un</span>
                       </div>
                       <div className="text-gray-500 text-[10px] mt-1">
-                        {item.paletes.length} palete(s) | {item.quantidadeNecessaria} un/kit
+                        <span className="bg-gray-100 px-1 rounded">Usinagem</span> | {item.paletes.length} palete(s) | {item.quantidadeNecessaria} un/kit
+                      </div>
+                    </div>
+                  ))}
+                  {(simulacao.calculo.componentesExternos || []).map((item, idx) => (
+                    <div key={`ext-${idx}`} className="bg-orange-50 p-2 rounded border border-orange-200 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-orange-800">{item.componente} ({item.comprimento})</span>
+                        <span className="text-orange-600 font-bold">{item.quantidadeDisponivel} un</span>
+                      </div>
+                      <div className="text-orange-500 text-[10px] mt-1">
+                        <span className="bg-orange-100 px-1 rounded">Externo</span> | {item.quantidadeNecessaria} un/kit
                       </div>
                     </div>
                   ))}

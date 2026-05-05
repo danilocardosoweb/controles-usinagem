@@ -5,19 +5,21 @@
 
 /**
  * Calcula quantos kits completos podem ser formados com os paletes disponíveis
- * @param {Array} paletes - Array de paletes com {ferramenta, comprimento, quantidade} ou {produto, comprimento, quantidade}
- * @param {Array} kitComponentes - Array de componentes do kit com {produto, comprimento, quantidade_por_kit}
- * @returns {Object} { quantidadeKits, paletesSelecionados, sobras }
+ * @param {Array} paletes - Array de paletes com {produto, comprimento, quantidade}
+ * @param {Array} kitComponentes - Array de componentes do kit com {produto, comprimento, quantidade_por_kit, origem}
+ * @param {Object} quantidadesExternas - Mapa de produto|comprimento → quantidade disponível para itens externos
+ * @returns {Object} { quantidadeKits, paletesSelecionados, componentesExternos, sobras }
  */
-export function calcularKitsCompletos(paletes, kitComponentes) {
-  if (!paletes || !kitComponentes || paletes.length === 0 || kitComponentes.length === 0) {
-    return { quantidadeKits: 0, paletesSelecionados: [], sobras: [] }
+export function calcularKitsCompletos(paletes, kitComponentes, quantidadesExternas = {}) {
+  if (!paletes || !kitComponentes || kitComponentes.length === 0) {
+    return { quantidadeKits: 0, paletesSelecionados: [], componentesExternos: [], sobras: [] }
   }
 
   // Normalizar dados dos paletes - preservar informações de racks
   const paletesDisponiveis = paletes.map(p => ({
     ...p,
-    ferramenta: String(p.ferramenta || p.produto || '').trim().toUpperCase(),
+    produto: String(p.produto || '').trim().toUpperCase(),
+    ferramenta: String(p.ferramenta || '').trim().toUpperCase(),
     comprimento: String(p.comprimento || '').trim(),
     quantidadeDisponivel: Number(p.quantidade || p.qtd_pc || 0),
     racks: p.racks || [], // Preservar array de racks
@@ -29,12 +31,17 @@ export function calcularKitsCompletos(paletes, kitComponentes) {
     produto: String(c.produto).trim().toUpperCase(),
     comprimento: String(c.comprimento || '').trim(),
     quantidadeNecessaria: Number(c.quantidade_por_kit || 1),
+    origem: c.origem || 'usinagem',
   }))
 
-  // Agrupar paletes por ferramenta+comprimento
+  // Separar componentes por origem
+  const componentesUsinagem = componentes.filter(c => c.origem !== 'externo')
+  const componentesExternos = componentes.filter(c => c.origem === 'externo')
+
+  // Agrupar paletes por produto+comprimento
   const paletesAgrupados = {}
   paletesDisponiveis.forEach(p => {
-    const chave = `${p.ferramenta}|${p.comprimento}`
+    const chave = `${p.produto}|${p.comprimento}`
     if (!paletesAgrupados[chave]) {
       paletesAgrupados[chave] = []
     }
@@ -45,8 +52,9 @@ export function calcularKitsCompletos(paletes, kitComponentes) {
   let quantidadeMaximaKits = Infinity
   const paletesSelecionados = []
 
-  for (const componente of componentes) {
-    // Usar produto como ferramenta para buscar nos paletes agrupados
+  // Processar componentes de usinagem (buscar nos paletes)
+  for (const componente of componentesUsinagem) {
+    // Usar produto completo para buscar nos paletes agrupados
     const chave = `${componente.produto}|${componente.comprimento}`
     const paletesDoComponente = paletesAgrupados[chave] || []
     
@@ -63,29 +71,19 @@ export function calcularKitsCompletos(paletes, kitComponentes) {
       // Expandir paletes para incluir informações individuais de racks
       const paletesComRacks = []
       for (const palete of paletesDoComponente) {
-        console.log(`🔧 Processando palete:`, {
-          ferramenta: palete.ferramenta,
-          comprimento: palete.comprimento,
-          temRacks: !!palete.racks,
-          quantidadeRacks: palete.racks?.length || 0,
-        })
-
         if (palete.racks && palete.racks.length > 0) {
           // Se tem array de paletes, expandir cada um
           for (const paletItem of palete.racks) {
-            console.log(`  ✓ Adicionando palete:`, paletItem.palete, `(${paletItem.quantidade} un)`)
             paletesComRacks.push({
               ...palete,
               palete: paletItem.palete,
-              rack: paletItem.palete, // Manter compatibilidade
+              rack: paletItem.palete,
               quantidadeDisponivel: paletItem.quantidade,
               apontamentoId: paletItem.apontamentoId,
               produtoOriginal: paletItem.produtoOriginal,
             })
           }
         } else {
-          // Se não tem paletes, usar o palete como está
-          console.log(`  ⚠ Palete sem itens, usando como está`)
           paletesComRacks.push(palete)
         }
       }
@@ -94,15 +92,38 @@ export function calcularKitsCompletos(paletes, kitComponentes) {
         componente: componente.produto,
         comprimento: componente.comprimento,
         quantidadeNecessaria: componente.quantidadeNecessaria,
+        origem: 'usinagem',
         paletes: paletesComRacks,
         quantidadeDisponivel,
       })
     }
   }
 
-  // Se não conseguir formar nenhum kit, retornar vazio
+  // Processar componentes externos (usar quantidades informadas manualmente)
+  const componentesExternosInfo = []
+  for (const componente of componentesExternos) {
+    const chave = `${componente.produto}|${componente.comprimento}`
+    const qtdDisponivel = Number(quantidadesExternas[chave] || 0)
+    const kitsComEsteComponente = qtdDisponivel > 0
+      ? Math.floor(qtdDisponivel / componente.quantidadeNecessaria)
+      : Infinity // Se não informou, não limita (assume disponível)
+
+    if (qtdDisponivel > 0) {
+      quantidadeMaximaKits = Math.min(quantidadeMaximaKits, kitsComEsteComponente)
+    }
+
+    componentesExternosInfo.push({
+      componente: componente.produto,
+      comprimento: componente.comprimento,
+      quantidadeNecessaria: componente.quantidadeNecessaria,
+      origem: 'externo',
+      quantidadeDisponivel: qtdDisponivel || 'Não informado',
+    })
+  }
+
+  // Se não tem componentes de usinagem e nenhum externo com quantidade, retornar vazio
   if (quantidadeMaximaKits === Infinity || quantidadeMaximaKits <= 0) {
-    return { quantidadeKits: 0, paletesSelecionados: [], sobras: [] }
+    return { quantidadeKits: 0, paletesSelecionados: [], componentesExternos: componentesExternosInfo, sobras: [] }
   }
 
   // Calcular quais paletes serão usados e quais sobram
@@ -136,6 +157,7 @@ export function calcularKitsCompletos(paletes, kitComponentes) {
       comprimento: item.comprimento,
       quantidadeNecessaria: item.quantidadeNecessaria,
       quantidadeDisponivel: item.quantidadeDisponivel,
+      origem: 'usinagem',
       paletes: paletesUsados,
     })
   }
@@ -143,6 +165,7 @@ export function calcularKitsCompletos(paletes, kitComponentes) {
   return {
     quantidadeKits: quantidadeMaximaKits,
     paletesSelecionados: paletesSelecionadosFinais,
+    componentesExternos: componentesExternosInfo,
     sobras,
   }
 }

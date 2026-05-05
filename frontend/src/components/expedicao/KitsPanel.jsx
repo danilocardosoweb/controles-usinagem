@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { FaPlus, FaTrash, FaEdit, FaSave, FaBoxes, FaExclamationTriangle, FaCheckCircle, FaSearch, FaSync, FaWarehouse, FaClipboardList, FaTimes, FaUser, FaWrench, FaRuler, FaTruck } from 'react-icons/fa'
+import { FaPlus, FaTrash, FaEdit, FaSave, FaBoxes, FaExclamationTriangle, FaCheckCircle, FaSearch, FaSync, FaWarehouse, FaClipboardList, FaTimes, FaUser, FaWrench, FaRuler, FaTruck, FaEye, FaCube, FaWeight } from 'react-icons/fa'
 import useSupabase from '../../hooks/useSupabase'
 import supabaseService from '../../services/SupabaseService'
 import { extrairFerramenta } from '../../utils/expUsinagem'
@@ -28,10 +28,16 @@ const initialKitForm = {
 
 const createInitialComponent = (ordem = 1) => ({
   tempId: createTempId(),
+  numero_componente: '',
   produto: '',
+  descricao: '',
   comprimento: '',
   quantidade_por_kit: '1',
+  unidade: 'UN',
+  extrusado: '',
+  peso_linear: '',
   ordem,
+  origem: 'usinagem',
 })
 
 function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user, loadRomaneios, loadRomaneioItens, loadApontamentos }) {
@@ -88,6 +94,15 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
   const [filtroCliente, setFiltroCliente] = useState('')
   const [filtroFerramenta, setFiltroFerramenta] = useState('')
   const [geradorRomaneioAberto, setGeradorRomaneioAberto] = useState(false)
+  const [kitViewModal, setKitViewModal] = useState(null)
+  const [paletesModal, setPaletesModal] = useState(null)
+
+  // Pré-preencher cliente quando filtroCliente muda e o formulário de kit está vazio
+  useEffect(() => {
+    if (filtroCliente && !kitForm.id && !kitForm.cliente) {
+      setKitForm(prev => ({ ...prev, cliente: filtroCliente }))
+    }
+  }, [filtroCliente])
 
   // Enriquecer kits com seus componentes para o GeradorRomaneio
   const kitsComComponentes = useMemo(() => {
@@ -255,8 +270,8 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
     }
 
     return {
-      combinacoes: combinacoesFiltradas,
-      produtos: produtosFiltrados,
+      combinacoes: combinacoesFiltradas.filter(c => c.quantidade > 0),
+      produtos: produtosFiltrados.filter(p => p.quantidade > 0),
       ferramentas: ferramentasFiltradas,
     }
   }, [analiseApontamentos, filtroCliente, filtroFerramenta])
@@ -282,6 +297,47 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
     })
     return Array.from(ferramentas).sort()
   }, [apontamentos])
+
+  // Mapa: ferramenta|comprimento → lista detalhada de apontamentos (rack, produto, qtd, cliente)
+  const apontamentosPorCombo = useMemo(() => {
+    const mapa = {}
+    ;(Array.isArray(apontamentos) ? apontamentos : []).forEach(apt => {
+      if (!apt.produto) return
+      const ferramenta = extrairFerramenta(apt.produto)
+      const comprimento = extrairComprimento(apt.produto)
+      if (!ferramenta || !comprimento) return
+      const chave = `${ferramenta}|${comprimento}`
+      if (!mapa[chave]) mapa[chave] = []
+      mapa[chave].push(apt)
+    })
+    return mapa
+  }, [apontamentos])
+
+  // Mapa: produto (uppercase) → lista detalhada de apontamentos
+  const apontamentosPorProduto = useMemo(() => {
+    const mapa = {}
+    ;(Array.isArray(apontamentos) ? apontamentos : []).forEach(apt => {
+      if (!apt.produto) return
+      const chave = String(apt.produto).toUpperCase().trim()
+      if (!mapa[chave]) mapa[chave] = []
+      mapa[chave].push(apt)
+    })
+    return mapa
+  }, [apontamentos])
+
+  // Mapa: produto (uppercase) → array de kits que o utilizam
+  const produtoParaKits = useMemo(() => {
+    const mapa = {}
+    kitsComComponentes.forEach(kit => {
+      ;(kit.componentes || []).forEach(comp => {
+        if (!comp.produto) return
+        const chave = String(comp.produto).toUpperCase().trim()
+        if (!mapa[chave]) mapa[chave] = []
+        if (!mapa[chave].find(k => k.id === kit.id)) mapa[chave].push(kit)
+      })
+    })
+    return mapa
+  }, [kitsComComponentes])
 
   const refreshAll = useCallback(async () => {
     await loadKits()
@@ -469,7 +525,7 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                 ) : (
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                   {dadosFiltrados.combinacoes.map((combo) => (
-                    <div key={`${combo.ferramenta}|${combo.comprimento}`} className="p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer group">
+                    <div key={`${combo.ferramenta}|${combo.comprimento}`} onClick={() => setPaletesModal({ tipo: 'combo', titulo: `${combo.ferramenta} · ${combo.comprimento} mm`, apontamentos: apontamentosPorCombo[`${combo.ferramenta}|${combo.comprimento}`] || [], kitsRelacionados: [...new Map(Array.from(combo.produtos).flatMap(p => produtoParaKits[p.toUpperCase()] || []).map(k => [k.id, k])).values()] })} className="p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer group">
                       <div className="flex items-start justify-between gap-3 mb-3">
                         <div>
                           <p className="font-bold text-gray-800 text-sm flex items-center gap-2">
@@ -494,6 +550,27 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                           ))}
                           {combo.produtos.size > 2 && <p className="text-gray-400">+{combo.produtos.size - 2} mais</p>}
                         </div>
+                        {/* Kits que usam algum produto desta combinação */}
+                        {(() => {
+                          const kitsDoCombo = [...new Map(
+                            Array.from(combo.produtos)
+                              .flatMap(p => produtoParaKits[p.toUpperCase()] || [])
+                              .map(k => [k.id, k])
+                          ).values()]
+                          if (kitsDoCombo.length === 0) return null
+                          return (
+                            <div className="mt-2 pt-2 border-t border-gray-100">
+                              <p className="font-bold text-[9px] text-gray-400 uppercase mb-1 flex items-center gap-1"><FaCube className="w-2 h-2" /> Kits</p>
+                              <div className="flex flex-wrap gap-1">
+                                {kitsDoCombo.map(kit => (
+                                  <span key={kit.id} onClick={e => { e.stopPropagation(); const compsKit = (Array.isArray(componentes) ? componentes : []).filter(c => String(c.kit_id) === String(kit.id)); setKitViewModal({ kit, comps: compsKit }) }} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-bold text-[9px] cursor-pointer hover:bg-blue-200 transition-colors">
+                                    <FaCube className="w-2 h-2" />{kit.codigo} · {kit.nome}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )
+                        })()}
                       </div>
                     </div>
                   ))}
@@ -512,25 +589,44 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                 <div className="max-h-[500px] overflow-y-auto pr-2">
                   <div className="space-y-2">
                     {dadosFiltrados.produtos.map((prod) => (
-                      <div key={prod.produto} className="p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer group flex items-center justify-between">
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-gray-800 text-sm truncate">{prod.produto}</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <FaWrench className="w-2.5 h-2.5" /> {prod.ferramenta || '-'}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <FaRuler className="w-2.5 h-2.5" /> {prod.comprimento || '-'} mm
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <FaUser className="w-2.5 h-2.5" /> {Array.from(prod.clientes).join(', ') || '-'}
-                            </span>
+                      <div key={prod.produto} onClick={() => setPaletesModal({ tipo: 'produto', titulo: prod.produto, apontamentos: apontamentosPorProduto[prod.produto.toUpperCase()] || [], kitsRelacionados: produtoParaKits[prod.produto.toUpperCase()] || [] })} className="p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all cursor-pointer group">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-gray-800 text-sm truncate">{prod.produto}</p>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <FaWrench className="w-2.5 h-2.5" /> {prod.ferramenta || '-'}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <FaRuler className="w-2.5 h-2.5" /> {prod.comprimento || '-'} mm
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <FaUser className="w-2.5 h-2.5" /> {Array.from(prod.clientes).join(', ') || '-'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right ml-4 flex-shrink-0">
+                            <p className="text-lg font-black text-blue-600">{formatQty(prod.quantidade)}</p>
+                            <p className="text-[10px] text-gray-400">peças</p>
                           </div>
                         </div>
-                        <div className="text-right ml-4">
-                          <p className="text-lg font-black text-blue-600">{formatQty(prod.quantidade)}</p>
-                          <p className="text-[10px] text-gray-400">peças</p>
-                        </div>
+                        {/* Kits que usam este produto */}
+                        {(() => {
+                          const kitsItem = produtoParaKits[prod.produto.toUpperCase()] || []
+                          if (kitsItem.length === 0) return (
+                            <p className="text-[9px] text-gray-300 mt-2 italic">Não pertence a nenhum kit cadastrado</p>
+                          )
+                          return (
+                            <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap gap-1 items-center">
+                              <span className="text-[9px] font-bold text-gray-400 uppercase mr-1 flex items-center gap-1"><FaCube className="w-2 h-2" /> Kits:</span>
+                              {kitsItem.map(kit => (
+                                <span key={kit.id} onClick={e => { e.stopPropagation(); const compsKit = (Array.isArray(componentes) ? componentes : []).filter(c => String(c.kit_id) === String(kit.id)); setKitViewModal({ kit, comps: compsKit }) }} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold text-[9px] cursor-pointer hover:bg-blue-600 hover:text-white transition-colors">
+                                  <FaCube className="w-2 h-2" />{kit.codigo} · {kit.nome}
+                                </span>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -646,75 +742,102 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                 </div>
 
                 <div className="space-y-3">
-                  {componentesForm.map((item, idx) => (
-                    <div key={item.tempId} className="grid grid-cols-[1fr_100px_80px_60px_auto] items-end gap-3 rounded-lg border border-gray-200 bg-white p-3 shadow-sm group">
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase">Produto</span>
-                        <input
-                          type="text"
-                          value={item.produto}
-                          onChange={(e) => {
-                            const novoComponentes = [...componentesForm]
-                            novoComponentes[idx] = { ...item, produto: e.target.value }
-                            setComponentesForm(novoComponentes)
-                          }}
-                          className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
-                          placeholder="Cód. Produto"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase">Comprimento</span>
-                        <input
-                          type="text"
-                          value={item.comprimento}
-                          onChange={(e) => {
-                            const novoComponentes = [...componentesForm]
-                            novoComponentes[idx] = { ...item, comprimento: e.target.value }
-                            setComponentesForm(novoComponentes)
-                          }}
-                          className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
-                          placeholder="Ex: 2081"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase text-center block">Qtd</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={item.quantidade_por_kit}
-                          onChange={(e) => {
-                            const novoComponentes = [...componentesForm]
-                            novoComponentes[idx] = { ...item, quantidade_por_kit: e.target.value }
-                            setComponentesForm(novoComponentes)
-                          }}
-                          className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none text-right font-bold"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] font-bold text-gray-500 uppercase text-center block">Ordem</span>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={item.ordem}
-                          onChange={(e) => {
-                            const novoComponentes = [...componentesForm]
-                            novoComponentes[idx] = { ...item, ordem: e.target.value }
-                            setComponentesForm(novoComponentes)
-                          }}
-                          className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none text-center"
-                        />
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => setComponentesForm(componentesForm.filter((_, i) => i !== idx))}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded border border-red-100 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all opacity-40 group-hover:opacity-100"
-                      >
-                        <FaTrash className="w-3 h-3" />
-                      </button>
+                  {componentesForm.map((item, idx) => {
+                    const upd = (field, val) => {
+                      const c = [...componentesForm]
+                      c[idx] = { ...item, [field]: val }
+                      setComponentesForm(c)
+                    }
+                    return (
+                    <div key={item.tempId} className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm group space-y-2">
+                      {/* Linha 1: Nº Comp, Produto, Descrição */}
+                      <div className="grid grid-cols-[80px_160px_1fr] items-end gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Nº Comp.</span>
+                          <input type="text" value={item.numero_componente || ''}
+                            onChange={e => upd('numero_componente', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none font-mono"
+                            placeholder="010000001" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Produto</span>
+                          <input type="text" value={item.produto}
+                            onChange={e => upd('produto', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none font-mono"
+                            placeholder="Cód. Produto" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Descrição</span>
+                          <input type="text" value={item.descricao || ''}
+                            onChange={e => upd('descricao', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                            placeholder="Texto breve do componente" />
+                        </label>
+                      </div>
+                      {/* Linha 2: Comprimento, Qtd, Unidade, Extrusado, Peso Linear, Origem, Excluir */}
+                      <div className="grid grid-cols-[90px_60px_70px_70px_90px_90px_32px] items-end gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Comprimento</span>
+                          <input type="text" value={item.comprimento}
+                            onChange={e => upd('comprimento', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                            placeholder="Ex: 2081" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase text-center block">Qtd</span>
+                          <input type="number" min="0" step="0.001" value={item.quantidade_por_kit}
+                            onChange={e => upd('quantidade_por_kit', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none text-right font-bold" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Unid.</span>
+                          <select value={item.unidade || 'UN'}
+                            onChange={e => upd('unidade', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none">
+                            <option>UN</option>
+                            <option>M</option>
+                            <option>KG</option>
+                            <option>PC</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Extrus.</span>
+                          <select value={item.extrusado || ''}
+                            onChange={e => upd('extrusado', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none">
+                            <option value="">-</option>
+                            <option value="G">G</option>
+                            <option value="M">M</option>
+                            <option value="C">C</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Peso Lin.</span>
+                          <input type="number" min="0" step="0.0001" value={item.peso_linear || ''}
+                            onChange={e => upd('peso_linear', e.target.value)}
+                            className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none"
+                            placeholder="kg/m" />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] font-bold text-gray-500 uppercase">Origem</span>
+                          <select value={item.origem || 'usinagem'}
+                            onChange={e => upd('origem', e.target.value)}
+                            className={`w-full rounded border px-2 py-1.5 text-xs focus:border-blue-400 focus:outline-none font-bold ${
+                              (item.origem || 'usinagem') === 'externo' ? 'border-orange-300 bg-orange-50 text-orange-700' : 'border-gray-300 text-gray-700'
+                            }`}>
+                            <option value="usinagem">Usinagem</option>
+                            <option value="externo">Externo</option>
+                          </select>
+                        </label>
+                        <button type="button"
+                          onClick={() => setComponentesForm(componentesForm.filter((_, i) => i !== idx))}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded border border-red-100 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition-all opacity-40 group-hover:opacity-100 mt-auto">
+                          <FaTrash className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {componentesForm.length === 0 && (
@@ -722,9 +845,29 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                     Nenhum componente adicionado. Clique em "Adicionar" para começar.
                   </div>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setComponentesForm([...componentesForm, createInitialComponent(componentesForm.length + 1)])}
+                  className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-blue-300 py-2.5 text-sm font-bold text-blue-500 hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700 transition-all"
+                >
+                  <FaPlus className="w-3 h-3" /> Adicionar Componente
+                </button>
               </div>
 
-              <div className="mt-8 flex justify-end">
+              <div className="mt-8 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKitForm(initialKitForm)
+                    setComponentesForm([createInitialComponent(1)])
+                    setKitMessage(null)
+                  }}
+                  disabled={kitSaving}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-6 py-3 text-sm font-bold text-gray-600 hover:bg-gray-50 hover:border-gray-400 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  <FaTimes /> Cancelar
+                </button>
                 <button
                   type="button"
                   onClick={async () => {
@@ -766,7 +909,7 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                       
                       if (kitForm.id) {
                         console.log('🔄 Atualizando kit existente:', kitForm.id)
-                        await updateKit(kitForm.id, kitData)
+                        await updateKit({ id: kitForm.id, ...kitData })
                       } else {
                         console.log('✨ Criando novo kit...')
                         try {
@@ -801,10 +944,16 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                         .filter((c) => c.produto)
                         .map((c) => ({
                           kit_id: kitId,
+                          numero_componente: normalizarTexto(c.numero_componente),
                           produto: normalizarTexto(c.produto),
+                          descricao: normalizarTexto(c.descricao),
                           comprimento: normalizarTexto(c.comprimento),
                           quantidade_por_kit: Number(c.quantidade_por_kit) || 1,
+                          unidade: normalizarTexto(c.unidade) || 'UN',
+                          extrusado: normalizarTexto(c.extrusado),
+                          peso_linear: c.peso_linear !== '' && c.peso_linear != null ? Number(c.peso_linear) : null,
                           ordem: Number(c.ordem) || 0,
+                          origem: c.origem || 'usinagem',
                         }))
                       
                       console.log('📦 Componentes para salvar:', componentesParaSalvar)
@@ -859,7 +1008,7 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                   kitsAtivos.map((kit) => {
                     const comps = (Array.isArray(componentes) ? componentes : []).filter((c) => String(c.kit_id) === String(kit.id))
                     return (
-                      <div key={kit.id} className="p-4 rounded-xl border border-gray-200 hover:border-blue-200 transition-all group relative overflow-hidden">
+                      <div key={kit.id} onClick={() => { const compsKit = (Array.isArray(componentes) ? componentes : []).filter((c) => String(c.kit_id) === String(kit.id)); setKitViewModal({ kit, comps: compsKit }) }} className="p-4 rounded-xl border border-gray-200 hover:border-blue-200 transition-all group relative overflow-hidden cursor-pointer">
                         <div className={`absolute left-0 top-0 bottom-0 w-1 ${kit.ativo !== false ? 'bg-green-500' : 'bg-gray-300'}`}></div>
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">
@@ -884,10 +1033,16 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                                 setComponentesForm(
                                   comps.map((c) => ({
                                     tempId: createTempId(),
+                                    numero_componente: c.numero_componente || '',
                                     produto: c.produto,
+                                    descricao: c.descricao || '',
                                     comprimento: c.comprimento || '',
                                     quantidade_por_kit: String(c.quantidade_por_kit),
+                                    unidade: c.unidade || 'UN',
+                                    extrusado: c.extrusado || '',
+                                    peso_linear: c.peso_linear != null ? String(c.peso_linear) : '',
                                     ordem: c.ordem,
+                                    origem: c.origem || 'usinagem',
                                   }))
                                 )
                               }}
@@ -919,6 +1074,199 @@ function KitsPanel({ apontamentos = [], romaneios = [], romaneioItens = [], user
                     )
                   })
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Paletes por Combo/Produto */}
+      {paletesModal && (() => {
+        const apts = paletesModal.apontamentos || []
+        // Agrupar por rack
+        const racksMap = {}
+        apts.forEach(apt => {
+          const rack = apt.rack_acabado || apt.rackAcabado || apt.rack_ou_pallet || apt.rackOuPallet || 'SEM RACK'
+          if (!racksMap[rack]) racksMap[rack] = { rack, total: 0, produtos: {}, cliente: apt.cliente || '' }
+          const prod = apt.produto || '-'
+          if (!racksMap[rack].produtos[prod]) racksMap[rack].produtos[prod] = 0
+          racksMap[rack].produtos[prod] += apt.quantidade || 0
+          racksMap[rack].total += apt.quantidade || 0
+        })
+        const racks = Object.values(racksMap).filter(r => r.total > 0).sort((a,b) => b.total - a.total)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setPaletesModal(null)}>
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start justify-between p-5 border-b border-gray-100">
+                <div>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <FaWarehouse className="text-blue-600 w-4 h-4" />
+                    <span className="font-black text-gray-800 text-base">{paletesModal.titulo}</span>
+                  </div>
+                  <div className="flex gap-3 mt-1">
+                    <span className="text-[10px] text-gray-400 font-bold">{racks.length} racks · {apts.reduce((s, a) => s + (a.quantidade||0), 0).toLocaleString('pt-BR')} peças</span>
+                    {paletesModal.kitsRelacionados.length > 0 && (
+                      <span className="text-[10px] text-blue-500 font-bold flex items-center gap-1">
+                        <FaCube className="w-2.5 h-2.5" /> {paletesModal.kitsRelacionados.map(k => k.codigo).join(', ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button onClick={() => setPaletesModal(null)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-all"><FaTimes className="w-4 h-4" /></button>
+              </div>
+              <div className="overflow-y-auto flex-1 p-5">
+                {racks.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400 italic text-sm">Nenhum rack encontrado</div>
+                ) : (
+                  <div className="space-y-2">
+                    {racks.map((r, i) => (
+                      <div key={r.rack} className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 transition-colors">
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-black flex items-center justify-center">{i+1}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-black text-gray-800 text-sm font-mono">{r.rack}</span>
+                            <span className="font-black text-blue-600 text-sm">{r.total.toLocaleString('pt-BR')} pç</span>
+                          </div>
+                          <div className="mt-1 space-y-0.5">
+                            {Object.entries(r.produtos).map(([prod, qtd]) => (
+                              <div key={prod} className="flex items-center justify-between text-[10px] text-gray-500">
+                                <span className="font-mono truncate">{prod}</span>
+                                <span className="font-bold ml-2 flex-shrink-0">{qtd.toLocaleString('pt-BR')}</span>
+                              </div>
+                            ))}
+                          </div>
+                          {r.cliente && <p className="text-[9px] text-gray-400 mt-1 flex items-center gap-1"><FaUser className="w-2 h-2"/>{r.cliente}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-between items-center px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+                <button
+                  onClick={() => {
+                    const totalPecas = apts.reduce((s, a) => s + (a.quantidade||0), 0)
+                    const kitsStr = paletesModal.kitsRelacionados.map(k => `${k.codigo} – ${k.nome}`).join(', ')
+                    const linhas = racks.map((r, i) => `
+                      <tr>
+                        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:center;color:#555;">${i+1}</td>
+                        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-weight:700;font-family:monospace;">${r.rack}</td>
+                        <td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:11px;color:#555;">${Object.keys(r.produtos).join(', ')}</td>
+                        <td style="padding:6px 10px;border-bottom:1px solid #eee;color:#555;">${r.cliente}</td>
+                        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;font-weight:700;color:#1d4ed8;">${r.total.toLocaleString('pt-BR')}</td>
+                      </tr>`).join('')
+                    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Paletes – ${paletesModal.titulo}</title>
+                      <style>body{font-family:sans-serif;margin:20px;color:#111}h2{margin:0 0 4px}p{margin:0 0 12px;color:#666;font-size:13px}table{width:100%;border-collapse:collapse}th{background:#f1f5f9;padding:7px 10px;text-align:left;font-size:11px;text-transform:uppercase;color:#64748b}@media print{button{display:none}}</style>
+                      </head><body>
+                      <h2>${paletesModal.titulo}</h2>
+                      <p>${racks.length} racks &nbsp;·&nbsp; ${totalPecas.toLocaleString('pt-BR')} peças${kitsStr ? `&nbsp;·&nbsp; Kits: ${kitsStr}` : ''}</p>
+                      <table><thead><tr><th>#</th><th>Rack</th><th>Produto(s)</th><th>Cliente</th><th style="text-align:right">Qtd</th></tr></thead>
+                      <tbody>${linhas}</tbody></table>
+                      <p style="margin-top:16px;font-size:11px;color:#aaa">Impresso em ${new Date().toLocaleString('pt-BR')}</p>
+                      <script>window.onload=()=>window.print()</script></body></html>`
+                    const w = window.open('', '_blank', 'width=800,height=600')
+                    w.document.write(html)
+                    w.document.close()
+                  }}
+                  className="px-4 py-2 rounded-lg bg-gray-700 text-white text-xs font-bold hover:bg-gray-900 transition-all flex items-center gap-1.5"
+                >
+                  🖨️ Imprimir
+                </button>
+                <button onClick={() => setPaletesModal(null)} className="px-4 py-2 rounded-lg border border-gray-300 text-xs font-bold text-gray-600 hover:bg-gray-100 transition-all">Fechar</button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Modal Visualização de Estrutura do Kit */}
+      {kitViewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setKitViewModal(null)}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-start justify-between p-5 border-b border-gray-100">
+              <div>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <FaCube className="text-blue-600 w-4 h-4" />
+                  <span className="font-black text-gray-800 text-lg tracking-tight">{kitViewModal.kit.codigo}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${kitViewModal.kit.ativo !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {kitViewModal.kit.ativo !== false ? 'Ativo' : 'Inativo'}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 font-medium">{kitViewModal.kit.nome}</p>
+                <div className="flex gap-3 mt-1">
+                  {kitViewModal.kit.cliente && <span className="text-[10px] text-gray-400 flex items-center gap-1"><FaUser className="w-2 h-2" />{kitViewModal.kit.cliente}</span>}
+                  <span className="text-[10px] text-gray-400 flex items-center gap-1"><FaWarehouse className="w-2 h-2" />{kitViewModal.comps.length} componentes</span>
+                </div>
+              </div>
+              <button onClick={() => setKitViewModal(null)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-all">
+                <FaTimes className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Tabela de componentes */}
+            <div className="overflow-y-auto flex-1 p-5">
+              {kitViewModal.comps.length === 0 ? (
+                <div className="p-8 text-center text-gray-400 italic text-sm">Nenhum componente cadastrado</div>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 uppercase text-[10px] font-bold">
+                      <th className="text-left px-3 py-2 rounded-l">Nº Comp.</th>
+                      <th className="text-left px-3 py-2">Produto</th>
+                      <th className="text-left px-3 py-2">Descrição</th>
+                      <th className="text-right px-3 py-2">Qtd</th>
+                      <th className="text-center px-3 py-2">Unid.</th>
+                      <th className="text-center px-3 py-2">Extrus.</th>
+                      <th className="text-right px-3 py-2 rounded-r">Peso Lin.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {kitViewModal.comps.sort((a,b) => (a.ordem||0)-(b.ordem||0)).map((c, i) => (
+                      <tr key={c.id || i} className={`hover:bg-blue-50 transition-colors ${c.numero_componente ? 'font-semibold bg-gray-50/60' : ''}`}>
+                        <td className="px-3 py-2 font-mono text-blue-700">{c.numero_componente || ''}</td>
+                        <td className="px-3 py-2 font-mono text-gray-700">{c.produto || ''}</td>
+                        <td className="px-3 py-2 text-gray-600 max-w-[200px] truncate">{c.descricao || ''}</td>
+                        <td className="px-3 py-2 text-right font-bold text-gray-800">{c.quantidade_por_kit != null ? Number(c.quantidade_por_kit).toLocaleString('pt-BR', {maximumFractionDigits:3}) : ''}</td>
+                        <td className="px-3 py-2 text-center text-gray-500">{c.unidade || ''}</td>
+                        <td className="px-3 py-2 text-center">{c.extrusado ? <span className="px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded text-[9px] font-bold">{c.extrusado}</span> : <span className="text-gray-300">—</span>}</td>
+                        <td className="px-3 py-2 text-right text-gray-500">{c.peso_linear != null && c.peso_linear !== '' ? Number(c.peso_linear).toFixed(4) : <span className="text-gray-300">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              <span className="text-xs text-gray-400">{kitViewModal.comps.filter(c => c.extrusado).length} itens extrusados</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setKitViewModal(null) }}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-xs font-bold text-gray-600 hover:bg-gray-100 transition-all"
+                >Fechar</button>
+                <button
+                  onClick={() => {
+                    const compsKit = kitViewModal.comps
+                    setKitForm(kitViewModal.kit)
+                    setComponentesForm(compsKit.map((c) => ({
+                      tempId: createTempId(),
+                      numero_componente: c.numero_componente || '',
+                      produto: c.produto,
+                      descricao: c.descricao || '',
+                      comprimento: c.comprimento || '',
+                      quantidade_por_kit: String(c.quantidade_por_kit),
+                      unidade: c.unidade || 'UN',
+                      extrusado: c.extrusado || '',
+                      peso_linear: c.peso_linear != null ? String(c.peso_linear) : '',
+                      ordem: c.ordem,
+                      origem: c.origem || 'usinagem',
+                    })))
+                    setKitViewModal(null)
+                  }}
+                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 transition-all flex items-center gap-1.5"
+                ><FaEdit className="w-3 h-3" /> Editar Kit</button>
               </div>
             </div>
           </div>

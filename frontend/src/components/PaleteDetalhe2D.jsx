@@ -272,6 +272,11 @@ function DiagramaPlanta({ config }) {
 
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
 export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferramentaCfg }) {
+  const [secaoLateralAberta, setSecaoLateralAberta] = useState(true)
+  const [secaoPlantaAberta, setSecaoPlantaAberta] = useState(false)
+  const [secaoDimsAberta, setSecaoDimsAberta] = useState(false)
+  const [secaoEstruturaAberta, setSecaoEstruturaAberta] = useState(false)
+  const [secaoApontamentoAberto, setSecaoApontamentoAberto] = useState(false)
   const [racks, setRacks] = useState([])
   const [loading, setLoading] = useState(false)
   const [rackSelecionado, setRackSelecionado] = useState(null)
@@ -600,161 +605,180 @@ export default function PaleteDetalhe2D({ ferramenta, comprimento, config, ferra
             <p className="text-sm">Selecione um palete para visualizar os detalhes</p>
           </div>
         ) : (
-          <div className="p-4 space-y-4">
+          <div className="p-3 space-y-2">
 
-            {/* Header do rack */}
-            <div className={`rounded-xl p-4 border-2 flex items-start justify-between ${completo ? 'bg-green-50 border-green-300' : 'bg-yellow-50 border-yellow-300'}`}>
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xl font-black font-mono text-gray-800">{rackSelecionado.rack}</span>
-                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${completo ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>
+            {/* Header compacto */}
+            <div className={`rounded-lg px-3 py-2 border flex items-center justify-between gap-2 ${completo ? 'bg-green-50 border-green-300' : 'bg-yellow-50 border-yellow-300'}`}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-black font-mono text-gray-800">{rackSelecionado.rack}</span>
+                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${completo ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'}`}>
                     {completo ? '✓ COMPLETO' : `PARCIAL ${Math.round(pct * 100)}%`}
                   </span>
+                  {rackSelecionado.comprimento_acabado_mm > 0 && (
+                    <span className="text-[9px] font-black text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">{fmt(rackSelecionado.comprimento_acabado_mm)} mm</span>
+                  )}
                 </div>
-                <p className="text-sm text-gray-600">{rackSelecionado.produto}</p>
-                <p className="text-xs text-gray-500">{rackSelecionado.cliente} · Pedido: {rackSelecionado.pedido_seq || '-'}</p>
+                <p className="text-[10px] text-gray-500 truncate">{rackSelecionado.produto} · {rackSelecionado.cliente}</p>
                 {rackSelecionado.romaneio_numero && (
-                  <p className="text-xs text-blue-700 font-semibold mt-1">📋 Romaneio: {rackSelecionado.romaneio_numero}</p>
+                  <p className="text-[9px] text-blue-700 font-semibold">📋 {rackSelecionado.romaneio_numero}</p>
                 )}
               </div>
-              {rackSelecionado.comprimento_acabado_mm > 0 && (
-                <div className="text-right">
-                  <p className="text-xs text-gray-500">Comprimento</p>
-                  <p className="text-lg font-black text-gray-700">{fmt(rackSelecionado.comprimento_acabado_mm)} mm</p>
+            </div>
+
+            {/* Métricas compactas numa linha */}
+            <div className="grid grid-cols-4 gap-1.5">
+              <div className="bg-white rounded-lg border border-gray-200 px-2 py-1.5">
+                <p className="text-[8px] text-gray-400 uppercase font-bold">Peças</p>
+                <p className="text-base font-black text-gray-800 leading-tight">{fmt(pecasRack)}</p>
+                {pcsPorPalete > 0 && <p className="text-[8px] text-gray-400">/{fmt(pcsPorPalete)}</p>}
+              </div>
+              <div className={`bg-white rounded-lg border px-2 py-1.5 ${amarradosRack > 0 ? 'border-blue-200' : 'border-gray-200'}`}>
+                <p className="text-[8px] text-gray-400 uppercase font-bold">Amarr.</p>
+                <p className="text-base font-black text-blue-700 leading-tight">{fmt(amarradosRack)}</p>
+                {pcsPorAmarrado > 0 && <p className="text-[8px] text-gray-400">{fmt(pcsPorAmarrado)} pcs</p>}
+              </div>
+              <div className={`bg-white rounded-lg border px-2 py-1.5 ${completo ? 'border-green-200' : 'border-orange-200'}`}>
+                <p className="text-[8px] text-gray-400 uppercase font-bold">Complet.</p>
+                <p className={`text-base font-black leading-tight ${completo ? 'text-green-600' : 'text-orange-500'}`}>{Math.round(pct * 100)}%</p>
+                {amarradosPalete > 0 && <p className="text-[8px] text-gray-400">{fmt(amarradosRack)}/{fmt(amarradosPalete)}</p>}
+              </div>
+              <div className="bg-white rounded-lg border border-gray-200 px-2 py-1.5">
+                <p className="text-[8px] text-gray-400 uppercase font-bold">Config.</p>
+                <p className="text-base font-black text-gray-700 leading-tight">{totalPacotesPalete}</p>
+                <p className="text-[8px] text-gray-400">pacotes</p>
+              </div>
+            </div>
+
+            {/* Barra de progresso compacta */}
+            <div className="bg-white rounded-lg border border-gray-200 px-3 py-2">
+              <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                <span className="font-semibold">Ocupação do Palete</span>
+                <span className="font-black text-gray-700">{Math.round(pct * 100)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                <div className={`h-2.5 rounded-full transition-all duration-700 ${completo ? 'bg-green-500' : pct >= 0.5 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                  style={{ width: `${Math.round(pct * 100)}%` }} />
+              </div>
+            </div>
+
+            {/* Vista Lateral — colapsável */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <button onClick={() => setSecaoLateralAberta(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
+                <span>Vista Lateral (Esquema)</span>
+                <span className="text-gray-400">{secaoLateralAberta ? '▲' : '▼'}</span>
+              </button>
+              {secaoLateralAberta && (
+                <div className="px-3 pb-2 border-t border-gray-100">
+                  <DiagramaLateral config={config} completude={pct} pcsPorAmarrado={pcsPorAmarrado} pcsPorPalete={pcsPorPalete} pecasReais={pecasRack} />
+                  <div className="flex gap-3 mt-1 text-[9px] text-gray-500">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-green-300 inline-block border border-green-500"/> Preenchido</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-200 inline-block border border-gray-400"/> Vazio</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-yellow-600 inline-block opacity-70"/> Ripa</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-yellow-300 inline-block border border-yellow-500"/> Base</span>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Cards de métricas */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="bg-white rounded-xl border border-gray-200 p-3">
-                <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">Peças no Rack</p>
-                <p className="text-2xl font-black text-gray-800">{fmt(pecasRack)}</p>
-                {pcsPorPalete > 0 && <p className="text-[10px] text-gray-400">de {fmt(pcsPorPalete)} esperadas</p>}
-              </div>
-
-              <div className={`bg-white rounded-xl border p-3 ${amarradosRack > 0 ? 'border-blue-200' : 'border-gray-200'}`}>
-                <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">Amarrados</p>
-                <p className="text-2xl font-black text-blue-700">{fmt(amarradosRack)}</p>
-                {pcsPorAmarrado > 0 && <p className="text-[10px] text-gray-400">{fmt(pcsPorAmarrado)} pcs/amarrado</p>}
-                {sobraPecas > 0 && <p className="text-[10px] text-yellow-600">+{fmt(sobraPecas)} pcs soltas</p>}
-              </div>
-
-              <div className={`bg-white rounded-xl border p-3 ${completo ? 'border-green-200' : 'border-orange-200'}`}>
-                <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">Completude</p>
-                <p className={`text-2xl font-black ${completo ? 'text-green-600' : 'text-orange-500'}`}>{Math.round(pct * 100)}%</p>
-                {amarradosPalete > 0 && <p className="text-[10px] text-gray-400">{fmt(amarradosRack)} / {fmt(amarradosPalete)} amarr.</p>}
-              </div>
-
-              <div className="bg-white rounded-xl border border-gray-200 p-3">
-                <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">Configuração</p>
-                <p className="text-2xl font-black text-gray-700">{totalPacotesPalete}</p>
-                <p className="text-[10px] text-gray-400">pacotes totais</p>
-              </div>
-            </div>
-
-            {/* Barra de progresso */}
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="flex justify-between text-xs text-gray-500 mb-2">
-                <span className="font-semibold">Ocupação do Palete</span>
-                <span className="font-black text-gray-700">{Math.round(pct * 100)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                <div
-                  className={`h-4 rounded-full transition-all duration-700 ${completo ? 'bg-green-500' : pct >= 0.5 ? 'bg-yellow-400' : 'bg-red-400'}`}
-                  style={{ width: `${Math.round(pct * 100)}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-[10px] text-gray-400 mt-1">
-                <span>0%</span>
-                <span>50%</span>
-                <span>100%</span>
-              </div>
-            </div>
-
-            {/* Diagrama lateral (vista de frente) */}
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Vista Lateral (Esquema)</p>
-              <DiagramaLateral
-                config={config}
-                completude={pct}
-                pcsPorAmarrado={pcsPorAmarrado}
-                pcsPorPalete={pcsPorPalete}
-                pecasReais={pecasRack}
-              />
-              <div className="flex gap-4 mt-2 text-[10px] text-gray-500">
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-300 inline-block border border-green-500"/> Preenchido</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-200 inline-block border border-gray-400"/> Vazio</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-600 inline-block opacity-70"/> Ripa</span>
-                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-yellow-300 inline-block border border-yellow-500"/> Base</span>
-              </div>
-            </div>
-
-            {/* Diagrama planta (vista superior — 1 camada) */}
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Vista Superior — 1 Camada ({nCols} coluna{nCols !== 1 ? 's' : ''})</p>
-              <DiagramaPlanta config={config} />
-            </div>
-
-            {/* Dimensões calculadas */}
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Dimensões Calculadas do Palete</p>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: 'Largura (X)', value: fmtMm(totalLargMm), sub: `${nCols} pacotes × ${pkLarg}mm + gaps` },
-                  { label: 'Comprimento (Z)', value: fmtMm(totalProfMm), sub: `${pkProf}mm material` },
-                  { label: 'Altura Total', value: fmtMm(totalAltMm), sub: `112mm base + empilhado` },
-                ].map(d => (
-                  <div key={d.label} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                    <p className="text-[10px] text-gray-400 font-bold uppercase">{d.label}</p>
-                    <p className="text-base font-black text-gray-800 mt-0.5">{d.value}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">{d.sub}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Estrutura de camadas */}
-            <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Estrutura do Palete</p>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                {[
-                  { label: 'Pacotes/camada', value: config.pacotes_por_camada },
-                  { label: 'Camadas/bloco', value: config.camadas_por_bloco },
-                  { label: 'Blocos', value: config.num_blocos },
-                  { label: 'Total camadas', value: (config.camadas_por_bloco || 1) * (config.num_blocos || 1) },
-                  { label: 'Total pacotes', value: totalPacotesPalete },
-                  { label: 'Ripa entre cam.', value: config.ripa_entre_camadas ? `Sim (${config.ripa_altura_mm}mm)` : 'Não' },
-                  { label: 'Ripa lateral', value: config.ripa_vertical ? `Sim (${config.ripa_vert_comp_mm}mm)` : 'Não' },
-                  { label: 'Orientação', value: config.orientacao_pacote || 'longitudinal' },
-                ].map(d => (
-                  <div key={d.label} className="bg-gray-50 rounded p-2 border border-gray-100">
-                    <p className="text-[10px] text-gray-400 uppercase">{d.label}</p>
-                    <p className="font-bold text-gray-700">{d.value ?? '-'}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Info do apontamento */}
-            {apontamentoRack && (
-              <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Último Apontamento</p>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {[
-                    { label: 'Operador', value: apontamentoRack.operador || apontamentoRack.usuario },
-                    { label: 'Máquina', value: apontamentoRack.maquina },
-                    { label: 'Início', value: apontamentoRack.inicio ? new Date(apontamentoRack.inicio).toLocaleString('pt-BR') : '-' },
-                    { label: 'Fim', value: apontamentoRack.fim ? new Date(apontamentoRack.fim).toLocaleString('pt-BR') : '-' },
-                    { label: 'Rack finalizado', value: apontamentoRack.rack_finalizado ? 'Sim' : 'Não' },
-                    { label: 'Qtd. apontada', value: fmt(apontamentoRack.quantidade) + ' pcs' },
-                  ].filter(d => d.value && d.value !== '-' && d.value !== 'undefined').map(d => (
-                    <div key={d.label} className="bg-gray-50 rounded p-2 border border-gray-100">
-                      <p className="text-[10px] text-gray-400 uppercase">{d.label}</p>
-                      <p className="font-bold text-gray-700">{d.value}</p>
-                    </div>
-                  ))}
+            {/* Vista Superior — colapsável */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <button onClick={() => setSecaoPlantaAberta(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
+                <span>Vista Superior — {nCols} coluna{nCols !== 1 ? 's' : ''}</span>
+                <span className="text-gray-400">{secaoPlantaAberta ? '▲' : '▼'}</span>
+              </button>
+              {secaoPlantaAberta && (
+                <div className="px-3 pb-2 border-t border-gray-100">
+                  <DiagramaPlanta config={config} />
                 </div>
+              )}
+            </div>
+
+            {/* Dimensões — colapsável */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <button onClick={() => setSecaoDimsAberta(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
+                <span>Dimensões · L {fmtMm(totalLargMm)} · C {fmtMm(totalProfMm)} · A {fmtMm(totalAltMm)}</span>
+                <span className="text-gray-400">{secaoDimsAberta ? '▲' : '▼'}</span>
+              </button>
+              {secaoDimsAberta && (
+                <div className="px-3 pb-2 border-t border-gray-100">
+                  <div className="grid grid-cols-3 gap-2 mt-2">
+                    {[
+                      { label: 'Largura (X)', value: fmtMm(totalLargMm), sub: `${nCols} × ${pkLarg}mm` },
+                      { label: 'Comprimento (Z)', value: fmtMm(totalProfMm), sub: `${pkProf}mm material` },
+                      { label: 'Altura Total', value: fmtMm(totalAltMm), sub: `112mm base` },
+                    ].map(d => (
+                      <div key={d.label} className="bg-slate-50 rounded p-2 border border-slate-200">
+                        <p className="text-[9px] text-gray-400 font-bold uppercase">{d.label}</p>
+                        <p className="text-sm font-black text-gray-800">{d.value}</p>
+                        <p className="text-[9px] text-gray-400">{d.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Estrutura — colapsável */}
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <button onClick={() => setSecaoEstruturaAberta(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
+                <span>Estrutura · {config.pacotes_por_camada}pct × {config.camadas_por_bloco}cam × {config.num_blocos}blocos</span>
+                <span className="text-gray-400">{secaoEstruturaAberta ? '▲' : '▼'}</span>
+              </button>
+              {secaoEstruturaAberta && (
+                <div className="px-3 pb-2 border-t border-gray-100">
+                  <div className="grid grid-cols-4 gap-1.5 mt-2 text-xs">
+                    {[
+                      { label: 'Pct/cam', value: config.pacotes_por_camada },
+                      { label: 'Cam/bloco', value: config.camadas_por_bloco },
+                      { label: 'Blocos', value: config.num_blocos },
+                      { label: 'Total cam.', value: (config.camadas_por_bloco || 1) * (config.num_blocos || 1) },
+                      { label: 'Total pct', value: totalPacotesPalete },
+                      { label: 'Ripa cam.', value: config.ripa_entre_camadas ? `${config.ripa_altura_mm}mm` : 'Não' },
+                      { label: 'Ripa lat.', value: config.ripa_vertical ? `${config.ripa_vert_comp_mm}mm` : 'Não' },
+                      { label: 'Orient.', value: config.orientacao_pacote || 'long.' },
+                    ].map(d => (
+                      <div key={d.label} className="bg-gray-50 rounded p-1.5 border border-gray-100">
+                        <p className="text-[8px] text-gray-400 uppercase">{d.label}</p>
+                        <p className="text-xs font-bold text-gray-700">{d.value ?? '-'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Apontamento — colapsável */}
+            {apontamentoRack && (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <button onClick={() => setSecaoApontamentoAberto(v => !v)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-[10px] font-bold text-gray-600 uppercase tracking-wide hover:bg-gray-50 transition-colors">
+                  <span>Último Apontamento</span>
+                  <span className="text-gray-400">{secaoApontamentoAberto ? '▲' : '▼'}</span>
+                </button>
+                {secaoApontamentoAberto && (
+                  <div className="px-3 pb-2 border-t border-gray-100">
+                    <div className="grid grid-cols-2 gap-1.5 mt-2 text-xs">
+                      {[
+                        { label: 'Operador', value: apontamentoRack.operador || apontamentoRack.usuario },
+                        { label: 'Máquina', value: apontamentoRack.maquina },
+                        { label: 'Início', value: apontamentoRack.inicio ? new Date(apontamentoRack.inicio).toLocaleString('pt-BR') : '-' },
+                        { label: 'Fim', value: apontamentoRack.fim ? new Date(apontamentoRack.fim).toLocaleString('pt-BR') : '-' },
+                        { label: 'Rack finalizado', value: apontamentoRack.rack_finalizado ? 'Sim' : 'Não' },
+                        { label: 'Qtd. apontada', value: fmt(apontamentoRack.quantidade) + ' pcs' },
+                      ].filter(d => d.value && d.value !== '-' && d.value !== 'undefined').map(d => (
+                        <div key={d.label} className="bg-gray-50 rounded p-1.5 border border-gray-100">
+                          <p className="text-[8px] text-gray-400 uppercase">{d.label}</p>
+                          <p className="text-xs font-bold text-gray-700">{d.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

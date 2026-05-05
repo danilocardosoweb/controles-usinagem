@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip)
 import { isVisualizador } from '../utils/auth'
 import { getConfiguracaoImpressoras, getCaminhoImpressora, isImpressoraAtiva } from '../utils/impressoras'
-import { buildFormularioIdentificacaoHtml, calcularTurno } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, calcularTurno, resolverNomeKit } from '../utils/formularioIdentificacao'
 import * as QRCode from 'qrcode'
 import CorrecaoApontamentoModal from '../components/CorrecaoApontamentoModal'
 import AutocompleteCodigoCliente from '../components/AutocompleteCodigoCliente'
@@ -239,6 +239,8 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     })()
   }, [])
   const { items: paradasDB } = useSupabase('apontamentos_parada')
+  const { items: kitsDB } = useSupabase('expedicao_kits')
+  const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
   const { items: ferramentasCfg, loadItems: recarregarFerramentasCfg } = useSupabase('ferramentas_cfg')
   const { items: documentosFerramentas } = useSupabase('documentos_ferramentas')
   // Lotes importados (Dados • Lotes) via Supabase
@@ -773,12 +775,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const dataProducao = dataHoraProducao ? dataHoraProducao.toLocaleDateString('pt-BR') : ''
     const turno = formData.turno || calcularTurno(dataHoraProducao)
 
+    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP: loteMPVal,
       cliente,
       item,
       codigoCliente,
+      nomeKit,
       medida,
       pedidoTecno,
       pedidoCli,
@@ -856,12 +860,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
     const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
     const turno = dados.turno || calcularTurno(dataHoraProducao)
 
+    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote: dados.lote || '',
       loteMP: dados.lote_externo || '',
       cliente: dados.cliente || '',
       item,
       codigoCliente: dados.codigo_produto_cliente || '',
+      nomeKit,
       medida,
       pedidoTecno: dados.pedido_seq || '',
       pedidoCli: dados.pedido_cliente || '',
@@ -919,6 +925,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
   const [comprimentoRefugo, setComprimentoRefugo] = useState('')
   const [durezaMaterial, setDurezaMaterial] = useState('')
   const [finalizarRack, setFinalizarRack] = useState(true)
+  const [editandoRack, setEditandoRack] = useState(false)
   // Modal de peça morta
   const [pecaMortaAberto, setPecaMortaAberto] = useState(false)
   const [pecaMortaQtd, setPecaMortaQtd] = useState('')
@@ -2148,20 +2155,25 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
           formData.ordemTrabalho
         )
 
+        setEditandoRack(false)
         if (rackEmAberto) {
-          // Reutilizar rack existente
+          // Reutilizar rack existente — checkbox padrão = false (rack ainda não finalizado)
           console.log('Rack em aberto encontrado:', rackEmAberto)
           setFormData(prev => ({ ...prev, rack_acabado: rackEmAberto }))
+          setFinalizarRack(false)
         } else {
-          // Gerar novo rack
+          // Novo rack — checkbox padrão = true (finalizar ao confirmar)
           const proximoRack = await supabaseService.obterProximoRackUsinagem()
           if (proximoRack) {
             console.log('Novo rack gerado:', proximoRack)
             setFormData(prev => ({ ...prev, rack_acabado: proximoRack }))
           }
+          setFinalizarRack(true)
         }
       } catch (err) {
         console.error('Erro ao gerar/reutilizar rack:', err)
+        setFinalizarRack(true)
+        setEditandoRack(false)
       }
     }
 
@@ -2477,7 +2489,7 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
       // Guardar seleção de lotes internos/externos na coluna padronizada
       lotes_externos: (formData.lotesExternos && formData.lotesExternos.length ? [...formData.lotesExternos] : []),
       lote: lote,
-      romaneio_numero: formData.romaneioNumero || '',
+      romaneio_numero: (formData.romaneioNumero && !/^0+$/.test(String(formData.romaneioNumero).trim())) ? String(formData.romaneioNumero).trim() : null,
       lote_externo: formData.loteExterno || '',
       // NOVO: Código do produto do cliente
       codigo_produto_cliente: formData.codigoProdutoCliente || '',
@@ -3042,12 +3054,14 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
         const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
         const turno = apontamento.turno || ''
 
+        const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
         const html = buildFormularioIdentificacaoHtml({
           lote,
           loteMP: loteMPVal,
           cliente,
           item,
           codigoCliente,
+          nomeKit,
           medida,
           pedidoTecno,
           pedidoCli,
@@ -5802,15 +5816,37 @@ const ApontamentosUsinagem = ({ tituloPagina = 'Apontamentos de Usinagem', subti
                 </div>
               </div>
               <div>
-                <label className="block text-sm text-gray-700 mb-1 font-semibold text-blue-800">Rack/Pallet (Acabado) *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-semibold text-blue-800">Rack/Pallet (Acabado) *</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditandoRack(prev => !prev)}
+                    title={editandoRack ? 'Bloquear edição' : 'Editar número do rack manualmente'}
+                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded border transition-colors ${
+                      editandoRack
+                        ? 'bg-yellow-100 border-yellow-400 text-yellow-700 hover:bg-yellow-200'
+                        : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-blue-600'
+                    }`}
+                  >
+                    <FaEdit className="w-3 h-3" />
+                    {editandoRack ? 'Bloqueando' : 'Editar'}
+                  </button>
+                </div>
                 <input 
                   type="text" 
-                  className="input-field input-field-sm border-blue-300 bg-blue-50 focus:ring-blue-500" 
+                  className={`input-field input-field-sm focus:ring-blue-500 transition-colors ${
+                    editandoRack
+                      ? 'border-yellow-400 bg-yellow-50'
+                      : 'border-blue-300 bg-blue-50'
+                  }`}
                   placeholder="Será gerado automaticamente" 
                   value={formData.rack_acabado} 
                   onChange={(e) => setFormData(prev => ({ ...prev, rack_acabado: e.target.value }))} 
-                  readOnly
+                  readOnly={!editandoRack}
                 />
+                {editandoRack && (
+                  <p className="text-xs text-yellow-700 mt-1">⚠ Edição manual ativa — certifique-se de usar um rack válido.</p>
+                )}
                 <div className="mt-3 border border-blue-200 bg-blue-50 rounded-md p-2 flex items-start gap-2 shadow-inner">
                   <input
                     type="checkbox"

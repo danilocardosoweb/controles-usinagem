@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { FaPrint, FaTimes, FaCheckCircle, FaExclamationTriangle, FaFileWord, FaBarcode, FaEye, FaArrowLeft } from 'react-icons/fa'
 import { getConfiguracaoImpressoras, isImpressoraAtiva } from '../utils/impressoras'
-import { buildFormularioIdentificacaoHtml } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, resolverNomeKit } from '../utils/formularioIdentificacao'
 import EtiquetasService from '../services/EtiquetasService'
 import PrintService from '../services/PrintService'
 import useSupabase from '../hooks/useSupabase'
@@ -25,6 +25,8 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
   const [tamanhoEtiqueta, setTamanhoEtiqueta] = useState('100x45')
 
   const { items: pedidosDB } = useSupabase('pedidos')
+  const { items: kitsDB } = useSupabase('expedicao_kits')
+  const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
 
   const pedidoClienteResolvido = useMemo(() => {
     const normalizar = (v) => {
@@ -368,12 +370,14 @@ const PrintModal = ({ isOpen, onClose, apontamento, onPrintSuccess }) => {
       const dataProducao = dataHoraProducao ? new Date(dataHoraProducao).toLocaleDateString('pt-BR') : ''
       const turno = apontamento.turno || ''
 
+      const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
       const html = buildFormularioIdentificacaoHtml({
         lote,
         loteMP: loteMPVal,
         cliente,
         item,
         codigoCliente: codigoClienteVal,
+        nomeKit,
         medida,
         pedidoTecno,
         pedidoCli,

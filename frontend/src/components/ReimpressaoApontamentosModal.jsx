@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
+import useSupabase from '../hooks/useSupabase'
 import { FaPrint, FaTimes, FaCheckSquare, FaSquare, FaEdit, FaFileAlt, FaBarcode, FaFileWord } from 'react-icons/fa'
-import { buildFormularioIdentificacaoHtml, calcularTurno } from '../utils/formularioIdentificacao'
+import { buildFormularioIdentificacaoHtml, calcularTurno, resolverNomeKit } from '../utils/formularioIdentificacao'
 
 const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) => {
   const [selecionados, setSelecionados] = useState({})
@@ -9,6 +10,8 @@ const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) 
   const [totalImprimir, setTotalImprimir] = useState(0)
   const [editandoApontamento, setEditandoApontamento] = useState(null)
   const [formEdicao, setFormEdicao] = useState({})
+  const { items: kitsDB } = useSupabase('expedicao_kits')
+  const { items: kitComponentesDB } = useSupabase('expedicao_kit_componentes')
 
   // Mapear itens do romaneio com apontamentos completos
   const itensCompletos = useMemo(() => {
@@ -139,12 +142,14 @@ const ReimpressaoApontamentosModal = ({ isOpen, onClose, itens, apontamentos }) 
     const turno = apontamento.turno || calcularTurno(dataHoraProducao)
 
     // Gerar HTML do formulário
+    const nomeKit = resolverNomeKit(item, kitsDB, kitComponentesDB)
     const html = buildFormularioIdentificacaoHtml({
       lote,
       loteMP,
       cliente,
       item,
       codigoCliente,
+      nomeKit,
       medida,
       pedidoTecno,
       pedidoCli,

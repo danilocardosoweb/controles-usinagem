@@ -23,12 +23,29 @@ export const calcularTurno = (dataHora) => {
   }
 }
 
+/**
+ * Dado um produto (item) e os arrays de kits+componentes,
+ * retorna o nome descritivo do primeiro kit que contém esse produto.
+ */
+export const resolverNomeKit = (produto, kits = [], componentes = []) => {
+  if (!produto || !kits.length) return ''
+  const prodUpper = String(produto).toUpperCase().trim()
+  for (const kit of kits) {
+    const compsDoKit = componentes.filter(c => String(c.kit_id) === String(kit.id))
+    if (compsDoKit.some(c => String(c.produto || '').toUpperCase().trim() === prodUpper)) {
+      return kit.nome || ''
+    }
+  }
+  return ''
+}
+
 export const buildFormularioIdentificacaoHtml = ({
   lote,
   loteMP,
   cliente,
   item,
   codigoCliente,
+  nomeKit,
   medida,
   pedidoTecno,
   pedidoCli,
@@ -185,7 +202,7 @@ export const buildFormularioIdentificacaoHtml = ({
         
         <div class="form-row">
           <div class="label">Código Cliente:</div>
-          <div class="valor">${codigoCliente || ''}</div>
+          <div class="valor" style="display:flex;align-items:center;justify-content:center;gap:10px;">${codigoCliente || ''}${nomeKit ? `<span style="font-size:13pt;font-weight:800;color:#1a3a6b;letter-spacing:0.3pt;border-left:3px solid #1a3a6b;padding-left:10px;"> ${nomeKit}</span>` : ''}</div>
         </div>
         
         <div class="form-row">

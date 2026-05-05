@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { FaClock, FaCalculator, FaChartLine, FaPlus, FaTrash, FaBusinessTime, FaSave, FaFileImport, FaProjectDiagram, FaList } from 'react-icons/fa'
+import ReactDOM from 'react-dom'
+import { FaClock, FaCalculator, FaChartLine, FaPlus, FaTrash, FaBusinessTime, FaSave, FaFileImport, FaProjectDiagram, FaList, FaIndustry, FaWeight, FaBars } from 'react-icons/fa'
 import { useSupabase } from '../hooks/useSupabase'
 import supabaseService from '../services/SupabaseService'
 
@@ -60,6 +61,10 @@ const PrevisaoTrabalho = () => {
   const [filaAtualIds, setFilaAtualIds] = useState([])
   const [filaSim1Ids, setFilaSim1Ids] = useState([])
   const [filaGruposRecolhidos, setFilaGruposRecolhidos] = useState({ cliente: [], pedido_cliente: [] })
+
+  // Calculadora de Extrusão
+  const [calcExtrusaoItens, setCalcExtrusaoItens] = useState([{ id: 1, ferramenta: '', comprimentoAcabado: '', qtdPecas: '', comprimentoBarra: 6000 }])
+  const [calcExtrusaoProximoId, setCalcExtrusaoProximoId] = useState(2)
   const [mostrarModalExportarFila, setMostrarModalExportarFila] = useState(false)
   const [dataExportarFila, setDataExportarFila] = useState(() => {
     const hoje = new Date()
@@ -1388,12 +1393,24 @@ const PrevisaoTrabalho = () => {
               <FaList className="inline mr-2" />
               Fila de Produção
             </button>
+            <button
+              onClick={() => setAbaSelecionada('extrusao')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                abaSelecionada === 'extrusao'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <FaIndustry className="inline mr-2" />
+              Calc. Extrusão
+            </button>
           </nav>
           </div>
         </div>
       </div>
 
-      {/* Filtros */}
+      {/* Filtros e resumo — ocultos na aba Calc. Extrusão */}
+      {abaSelecionada !== 'extrusao' && (<>
         <div className="flex justify-end mb-2">
           <button onClick={() => setFiltrosExpandidos(v => !v)} className="text-sm px-3 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50">
             {filtrosExpandidos ? 'Recolher filtros' : 'Expandir filtros'}
@@ -1582,6 +1599,7 @@ const PrevisaoTrabalho = () => {
           </div>
         </div>
       </div>
+      </>)}
 
       {/* Aba: Gantt (renderização independente) */}
       {abaSelecionada === 'gantt' && (
@@ -2622,7 +2640,546 @@ const PrevisaoTrabalho = () => {
           </div>
         </div>
       )}
+      {abaSelecionada === 'extrusao' && (
+        <CalculadoraExtrusao
+          ferramentasCfg={ferramentasCfg}
+          apontamentos={apontamentos}
+          extrairFerramenta={extrairFerramenta}
+          itens={calcExtrusaoItens}
+          setItens={setCalcExtrusaoItens}
+          proximoId={calcExtrusaoProximoId}
+          setProximoId={setCalcExtrusaoProximoId}
+        />
+      )}
     </div>
+  )
+}
+
+function CalculadoraExtrusao({ ferramentasCfg, apontamentos, extrairFerramenta, itens, setItens, proximoId, setProximoId }) {
+  const supabase = supabaseService.supabase
+  const [abaAtiva, setAbaAtiva] = React.useState('calculadora') // 'calculadora' | 'cadastro'
+  const [mapeamento, setMapeamento] = React.useState([])
+  const [loadingMapeamento, setLoadingMapeamento] = React.useState(false)
+  const [uploadStatus, setUploadStatus] = React.useState(null) // null | 'loading' | 'ok' | 'erro'
+  const [uploadMsg, setUploadMsg] = React.useState('')
+  const [pesoLinearMapDB, setPesoLinearMapDB] = React.useState({})
+  const fileInputRef = React.useRef()
+
+  // --- Carrega mapeamento + peso_linear do banco ---
+  React.useEffect(() => {
+    const carregar = async () => {
+      setLoadingMapeamento(true)
+      const [{ data: mapData }, { data: ferrData }] = await Promise.all([
+        supabase.from('extrusao_mapeamento').select('*').order('ferramenta').order('comprimento_acabado_mm'),
+        supabase.from('ferramentas_cfg').select('ferramenta, peso_linear').not('peso_linear', 'is', null)
+      ])
+      setMapeamento(mapData || [])
+      // Consolida peso_linear por ferramenta (primeiro valor válido)
+      const plMap = {}
+      for (const f of (ferrData || [])) {
+        const key = String(f.ferramenta || '').trim().toUpperCase()
+        if (key && f.peso_linear != null && !plMap[key]) {
+          plMap[key] = parseFloat(f.peso_linear)
+        }
+      }
+      setPesoLinearMapDB(plMap)
+      setLoadingMapeamento(false)
+    }
+    carregar()
+  }, [])
+
+  // --- Mapa ferramenta -> peso_linear (banco tem prioridade, fallback para prop) ---
+  const pesoLinearMap = React.useMemo(() => {
+    const map = {}
+    if (ferramentasCfg) {
+      for (const f of ferramentasCfg) {
+        const key = String(f.ferramenta || '').trim().toUpperCase()
+        if (key && f.peso_linear != null) map[key] = parseFloat(f.peso_linear)
+      }
+    }
+    // Sobrescreve com valores buscados diretamente (mais confiável)
+    return { ...map, ...pesoLinearMapDB }
+  }, [ferramentasCfg, pesoLinearMapDB])
+
+  // --- Extrai ferramenta do código: sempre NL+4D (ex: TG-2011, TCG-0170, BC-0037) ---
+  const extrairFerramentaDoCodigo = (codigo) => {
+    if (!codigo) return ''
+    const m = String(codigo).toUpperCase().match(/^([A-Z]+)(\d{4})/)
+    return m ? `${m[1]}-${m[2]}` : ''
+  }
+
+  // --- Extrai comprimento do código: sempre posição 9-12 (índice 8, 4 chars) ---
+  const extrairComprimentoDoCodigo = (codigo) => {
+    if (!codigo || String(codigo).length < 12) return null
+    const val = parseInt(String(codigo).substring(8, 12))
+    return isNaN(val) ? null : val
+  }
+
+  // --- Mapa ferramenta -> [{comprimentoAcabado, comprimentoLongo, produtoAcabado, produtoLongo}] ---
+  const mapeamentoPorFerramenta = React.useMemo(() => {
+    const map = {}
+    for (const row of mapeamento) {
+      const ferr = String(row.ferramenta || '').trim().toUpperCase()
+      if (!ferr) continue
+      if (!map[ferr]) map[ferr] = []
+      // Deduplica por comprimento acabado
+      const jaExiste = map[ferr].find(x => x.comprimentoAcabado === row.comprimento_acabado_mm)
+      if (!jaExiste) {
+        map[ferr].push({
+          comprimentoAcabado: row.comprimento_acabado_mm,
+          comprimentoLongo: row.comprimento_longo_mm,
+          produtoAcabado: row.produto_acabado,
+          produtoLongo: row.produto_longo,
+        })
+      }
+    }
+    // Ordenar por comprimento acabado
+    for (const ferr of Object.keys(map)) {
+      map[ferr].sort((a, b) => (a.comprimentoAcabado || 0) - (b.comprimentoAcabado || 0))
+    }
+    return map
+  }, [mapeamento])
+
+  const ferramentasDisponiveis = Object.keys(mapeamentoPorFerramenta).sort()
+
+  // --- Autocomplete state por linha ---
+  const [acInputs, setAcInputs] = React.useState({})   // id -> texto digitado
+  const [acAberto, setAcAberto] = React.useState(null)  // id da linha com dropdown aberto
+  const [acPos, setAcPos] = React.useState({ top: 0, left: 0, width: 0 })
+  const acInputRefs = React.useRef({})
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (acAberto !== null) {
+        const ref = acInputRefs.current[acAberto]
+        if (ref && !ref.contains(e.target)) setAcAberto(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [acAberto])
+
+  const abrirDropdown = (itemId) => {
+    const el = acInputRefs.current[itemId]
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      setAcPos({ top: rect.bottom + window.scrollY, left: rect.left + window.scrollX, width: rect.width })
+    }
+    setAcAberto(itemId)
+  }
+
+  const getAcTexto = (item) => {
+    if (acInputs[item.id] !== undefined) return acInputs[item.id]
+    return item.ferramenta || ''
+  }
+
+  const ferramentasFiltradas = (item) => {
+    const texto = getAcTexto(item).toUpperCase()
+    if (!texto) return ferramentasDisponiveis
+    return ferramentasDisponiveis.filter(f => f.toUpperCase().includes(texto))
+  }
+
+  const selecionarFerramenta = (itemId, valor) => {
+    atualizarLinha(itemId, 'ferramenta', valor)
+    atualizarLinha(itemId, 'comprimentoAcabadoKey', '')
+    setAcInputs(prev => { const n = { ...prev }; delete n[itemId]; return n })
+    setAcAberto(null)
+  }
+
+  // --- Itens da calculadora ---
+  const adicionarLinha = () => {
+    setItens(prev => [...prev, { id: proximoId, ferramenta: '', comprimentoAcabadoKey: '', qtdPecas: '' }])
+    setProximoId(prev => prev + 1)
+  }
+  const removerLinha = (id) => setItens(prev => prev.filter(i => i.id !== id))
+  const atualizarLinha = (id, campo, valor) => setItens(prev => prev.map(i => i.id === id ? { ...i, [campo]: valor } : i))
+
+  // --- Cálculo por linha ---
+  const calcularLinha = (item) => {
+    const ferrKey = String(item.ferramenta || '').trim().toUpperCase()
+    const opcoes = mapeamentoPorFerramenta[ferrKey] || []
+    const opcaoSelecionada = opcoes.find(o => String(o.comprimentoAcabado) === String(item.comprimentoAcabadoKey))
+    if (!opcaoSelecionada) return { pecasPorBarra: null, barrasNecessarias: null, kgTotal: null, retalhoMm: null, aproveitamento: null }
+
+    const compAcabado = opcaoSelecionada.comprimentoAcabado
+    const compBarra = opcaoSelecionada.comprimentoLongo
+    const qtdPecas = parseFloat(item.qtdPecas)
+    const pesoLinear = pesoLinearMap[ferrKey] || null
+
+    if (!compAcabado || compAcabado <= 0 || !compBarra || compBarra <= 0 || !qtdPecas || qtdPecas <= 0) {
+      return { pecasPorBarra: null, barrasNecessarias: null, kgTotal: null, retalhoMm: null, aproveitamento: null }
+    }
+    const pecasPorBarra = Math.floor(compBarra / compAcabado)
+    if (pecasPorBarra <= 0) return { pecasPorBarra: 0, barrasNecessarias: null, kgTotal: null, retalhoMm: null, aproveitamento: null }
+    const retalhoMm = compBarra - (pecasPorBarra * compAcabado)
+    const aproveitamento = (pecasPorBarra * compAcabado) / compBarra * 100
+    const barrasNecessarias = Math.ceil(qtdPecas / pecasPorBarra)
+    const kgTotal = pesoLinear != null ? barrasNecessarias * (compBarra / 1000) * pesoLinear : null
+    return { pecasPorBarra, barrasNecessarias, kgTotal, retalhoMm, aproveitamento, compBarra, compAcabado }
+  }
+
+  const resultados = itens.map(item => {
+    const ferrKey = String(item.ferramenta || '').trim().toUpperCase()
+    const opcoes = mapeamentoPorFerramenta[ferrKey] || []
+    const opcaoSelecionada = opcoes.find(o => String(o.comprimentoAcabado) === String(item.comprimentoAcabadoKey))
+    return { ...item, opcaoSelecionada, ...calcularLinha(item) }
+  })
+  const totalBarras = resultados.reduce((s, r) => s + (r.barrasNecessarias || 0), 0)
+  const totalKg = resultados.length > 0 && resultados.every(r => r.kgTotal != null)
+    ? resultados.reduce((s, r) => s + (r.kgTotal || 0), 0) : null
+
+  // --- Upload da planilha ---
+  const handleUploadPlanilha = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadStatus('loading')
+    setUploadMsg('Lendo planilha...')
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer)
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+      // Detectar colunas: primeira linha como header
+      const header = (rows[0] || []).map(h => String(h).trim().toLowerCase())
+      const colA = header.findIndex(h => h.includes('produto') && !h.includes('item') && !h.includes('perfil'))
+      const colB = header.findIndex(h => h.includes('perfil') || (h.includes('item') && h.includes('perfil')) || h.includes('longo'))
+      const idxA = colA >= 0 ? colA : 0
+      const idxB = colB >= 0 ? colB : 1
+      const dados = rows.slice(1)
+        .map(r => ({ produtoAcabado: String(r[idxA] || '').trim(), produtoLongo: String(r[idxB] || '').trim() }))
+        .filter(r => r.produtoAcabado && r.produtoLongo && r.produtoAcabado.length >= 10)
+
+      if (dados.length === 0) { setUploadStatus('erro'); setUploadMsg('Nenhuma linha válida encontrada.'); return }
+      setUploadMsg(`Importando ${dados.length} linhas...`)
+
+      // Upsert em lotes de 200
+      let erros = 0
+      for (let i = 0; i < dados.length; i += 200) {
+        const lote = dados.slice(i, i + 200)
+        const { error } = await supabase.from('extrusao_mapeamento')
+          .upsert(lote.map(d => ({ produto_acabado: d.produtoAcabado.toUpperCase(), produto_longo: d.produtoLongo.toUpperCase() })),
+            { onConflict: 'produto_acabado,produto_longo', ignoreDuplicates: true })
+        if (error) erros++
+      }
+      // Recarregar
+      const { data: novo } = await supabase.from('extrusao_mapeamento').select('*').order('ferramenta').order('comprimento_acabado_mm')
+      setMapeamento(novo || [])
+      setUploadStatus('ok')
+      setUploadMsg(`${dados.length} linhas importadas${erros ? ` (${erros} lotes com erro)` : ' com sucesso'}.`)
+    } catch (err) {
+      setUploadStatus('erro')
+      setUploadMsg('Erro ao processar planilha: ' + err.message)
+    }
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  const limparMapeamento = async () => {
+    if (!window.confirm('Apagar todo o mapeamento? Esta ação não pode ser desfeita.')) return
+    await supabase.from('extrusao_mapeamento').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    setMapeamento([])
+  }
+
+  // --- Exportar resultado ---
+  const exportarExcel = async () => {
+    try {
+      const XLSX = await import('xlsx')
+      const rows = resultados.map(r => ({
+        Ferramenta: r.ferramenta || '-',
+        'Produto Acabado': r.opcaoSelecionada?.produtoAcabado || '-',
+        'Produto Longo': r.opcaoSelecionada?.produtoLongo || '-',
+        'Comp. Acabado (mm)': r.compAcabado ?? '-',
+        'Comp. Barra Longa (mm)': r.compBarra ?? '-',
+        'Qtd Peças': r.qtdPecas || 0,
+        'Peças/Barra': r.pecasPorBarra ?? '-',
+        'Barras Necessárias': r.barrasNecessarias ?? '-',
+        'Retalho (mm)': r.retalhoMm ?? '-',
+        'Aproveitamento (%)': r.aproveitamento != null ? r.aproveitamento.toFixed(1) : '-',
+        'Peso Linear (kg/m)': pesoLinearMap[String(r.ferramenta || '').trim().toUpperCase()] ?? 'N/D',
+        'KG Total': r.kgTotal != null ? r.kgTotal.toFixed(2) : 'N/D',
+      }))
+      rows.push({ Ferramenta: 'TOTAL', 'Qtd Peças': resultados.reduce((s, r) => s + (parseFloat(r.qtdPecas) || 0), 0), 'Barras Necessárias': totalBarras, 'KG Total': totalKg != null ? totalKg.toFixed(2) : 'N/D' })
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb2 = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb2, ws, 'Calc Extrusão')
+      XLSX.writeFile(wb2, `calc_extrusao_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (e) { console.error(e) }
+  }
+
+  return (
+    <>
+    <div className="space-y-4">
+      {/* Sub-abas */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="flex border-b border-gray-200 px-4">
+          {[{ key: 'calculadora', label: 'Calculadora' }, { key: 'cadastro', label: 'Cadastro de Mapeamento' }].map(a => (
+            <button key={a.key} onClick={() => setAbaAtiva(a.key)}
+              className={`py-3 px-4 text-sm font-medium border-b-2 -mb-px transition-colors ${abaAtiva === a.key ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+
+        {/* === ABA CADASTRO === */}
+        {abaAtiva === 'cadastro' && (
+          <div className="p-6">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Mapeamento Produto Acabado × Produto Longo</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Importe uma planilha com duas colunas: <strong>Produto</strong> (acabado) e <strong>Item.Perfil</strong> (barra longa).
+                  O app extrai automaticamente a ferramenta e os comprimentos dos códigos.
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                  <FaFileImport /> Importar Planilha
+                </button>
+                <button onClick={limparMapeamento}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 text-sm font-medium">
+                  <FaTrash /> Limpar Tudo
+                </button>
+                <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleUploadPlanilha} />
+              </div>
+            </div>
+
+            {uploadStatus && (
+              <div className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${uploadStatus === 'ok' ? 'bg-green-50 text-green-700' : uploadStatus === 'erro' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'}`}>
+                {uploadMsg}
+              </div>
+            )}
+
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-xs text-yellow-800 mb-4">
+              <strong>Formato esperado:</strong> Coluna A = Produto acabado (ex: <code>BC0037160074NCNV</code>) · Coluna B = Item.Perfil / Produto longo (ex: <code>BC0037165659NANV</code>) · Primeira linha = cabeçalho.
+            </div>
+
+            {loadingMapeamento ? (
+              <p className="text-gray-400 text-sm">Carregando...</p>
+            ) : mapeamento.length === 0 ? (
+              <p className="text-gray-400 text-sm">Nenhum mapeamento cadastrado. Importe uma planilha.</p>
+            ) : (
+              <div className="overflow-x-auto max-h-96 overflow-y-auto border rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      {['Ferramenta', 'Produto Acabado', 'Comp. Acabado (mm)', 'Produto Longo', 'Comp. Longo (mm)'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left font-medium text-gray-500 uppercase">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {mapeamento.map(row => (
+                      <tr key={row.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-1.5 font-medium text-blue-700">{row.ferramenta}</td>
+                        <td className="px-3 py-1.5 font-mono text-gray-700">{row.produto_acabado}</td>
+                        <td className="px-3 py-1.5 text-center font-semibold">{row.comprimento_acabado_mm ?? '?'}</td>
+                        <td className="px-3 py-1.5 font-mono text-gray-700">{row.produto_longo}</td>
+                        <td className="px-3 py-1.5 text-center font-semibold text-green-700">{row.comprimento_longo_mm ?? '?'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="text-xs text-gray-400 mt-2">{mapeamento.length} registros cadastrados</p>
+          </div>
+        )}
+
+        {/* === ABA CALCULADORA === */}
+        {abaAtiva === 'calculadora' && (
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                  <FaIndustry className="text-blue-600" /> Calculadora de Extrusão
+                </h3>
+                <p className="text-sm text-gray-500 mt-0.5">Selecione a ferramenta e o comprimento acabado. O comprimento da barra longa e o KG são calculados automaticamente.</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={adicionarLinha} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                  <FaPlus /> Adicionar Linha
+                </button>
+                <button onClick={exportarExcel} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+                  <FaFileImport /> Exportar Excel
+                </button>
+              </div>
+            </div>
+
+            {ferramentasDisponiveis.length === 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 text-sm text-yellow-800 mb-4">
+                Nenhum mapeamento cadastrado. Acesse a aba <strong>Cadastro de Mapeamento</strong> e importe a planilha primeiro.
+              </div>
+            )}
+
+            <div className="overflow-x-auto overflow-y-visible">
+              <table className="w-full text-sm" style={{ overflowY: 'visible' }}>
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ferramenta</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Comprimento Acabado</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Barra Longa</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qtd Peças</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Pçs/Barra</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Barras</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Retalho</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Aproveit.</th>
+                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">KG Total</th>
+                    <th className="px-3 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {resultados.map((item) => {
+                    const ferrKey = String(item.ferramenta || '').trim().toUpperCase()
+                    const opcoes = mapeamentoPorFerramenta[ferrKey] || []
+                    const pesoLinear = pesoLinearMap[ferrKey]
+                    return (
+                      <tr key={item.id} className="hover:bg-gray-50 align-top">
+                        {/* Ferramenta — autocomplete via portal */}
+                        <td className="px-3 py-2">
+                          <input
+                            ref={el => acInputRefs.current[item.id] = el}
+                            type="text"
+                            value={getAcTexto(item)}
+                            onChange={e => {
+                              setAcInputs(prev => ({ ...prev, [item.id]: e.target.value }))
+                              abrirDropdown(item.id)
+                              if (!e.target.value) selecionarFerramenta(item.id, '')
+                            }}
+                            onFocus={() => abrirDropdown(item.id)}
+                            placeholder="Buscar ferramenta..."
+                            className="w-40 p-1.5 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500"
+                          />
+                          {pesoLinear != null && <div className="text-xs text-green-600 mt-0.5">{pesoLinear} kg/m</div>}
+                          {pesoLinear == null && item.ferramenta && <div className="text-xs text-orange-500 mt-0.5">Peso N/D</div>}
+                        </td>
+                        {/* Comprimento acabado */}
+                        <td className="px-3 py-2">
+                          <select
+                            value={item.comprimentoAcabadoKey}
+                            onChange={e => atualizarLinha(item.id, 'comprimentoAcabadoKey', e.target.value)}
+                            disabled={!item.ferramenta || opcoes.length === 0}
+                            className="w-40 p-1.5 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                          >
+                            <option value="">— comprimento —</option>
+                            {opcoes.map(o => (
+                              <option key={o.comprimentoAcabado} value={String(o.comprimentoAcabado)}>
+                                {o.comprimentoAcabado} mm
+                              </option>
+                            ))}
+                          </select>
+                          {item.opcaoSelecionada && (
+                            <div className="text-xs text-gray-400 mt-0.5 font-mono truncate max-w-[160px]" title={item.opcaoSelecionada.produtoAcabado}>
+                              {item.opcaoSelecionada.produtoAcabado}
+                            </div>
+                          )}
+                        </td>
+                        {/* Barra longa — preenchida automaticamente */}
+                        <td className="px-3 py-2 text-center">
+                          {item.opcaoSelecionada ? (
+                            <div>
+                              <span className="inline-block px-2 py-1 bg-gray-100 rounded text-sm font-semibold text-gray-800">
+                                {item.opcaoSelecionada.comprimentoLongo} mm
+                              </span>
+                              <div className="text-xs text-gray-400 mt-0.5 font-mono truncate max-w-[140px]" title={item.opcaoSelecionada.produtoLongo}>
+                                {item.opcaoSelecionada.produtoLongo}
+                              </div>
+                            </div>
+                          ) : <span className="text-gray-300">—</span>}
+                        </td>
+                        {/* Qtd peças */}
+                        <td className="px-3 py-2">
+                          <input type="number" min="1" value={item.qtdPecas}
+                            onChange={e => atualizarLinha(item.id, 'qtdPecas', e.target.value)}
+                            placeholder="Ex: 5000"
+                            className="w-28 p-1.5 border border-gray-300 rounded text-sm focus:ring-blue-500 focus:border-blue-500" />
+                        </td>
+                        {/* Resultados */}
+                        <td className="px-3 py-2 text-center">
+                          {item.pecasPorBarra != null ? <span className="font-semibold text-blue-700">{item.pecasPorBarra}</span> : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {item.barrasNecessarias != null
+                            ? <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 font-bold text-sm"><FaBars className="w-3 h-3" />{item.barrasNecessarias}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {item.retalhoMm != null
+                            ? <span className={`text-sm font-medium ${item.retalhoMm > 100 ? 'text-orange-600' : 'text-gray-600'}`}>{item.retalhoMm} mm</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {item.aproveitamento != null
+                            ? <span className={`text-sm font-semibold ${item.aproveitamento >= 90 ? 'text-green-600' : item.aproveitamento >= 75 ? 'text-yellow-600' : 'text-red-600'}`}>{item.aproveitamento.toFixed(1)}%</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {item.kgTotal != null
+                            ? <span className="inline-flex items-center gap-1 font-bold text-gray-800"><FaWeight className="w-3 h-3 text-gray-400" />{item.kgTotal.toFixed(1)} kg</span>
+                            : item.barrasNecessarias != null
+                              ? <span className="text-xs text-orange-500">Peso N/D</span>
+                              : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button onClick={() => removerLinha(item.id)} className="text-red-400 hover:text-red-600"><FaTrash className="w-3.5 h-3.5" /></button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Totais */}
+            {itens.length > 0 && (
+              <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-blue-50 rounded-lg p-4 text-center">
+                  <div className="text-xs text-blue-600 font-medium uppercase mb-1">Produtos</div>
+                  <div className="text-2xl font-bold text-blue-800">{itens.length}</div>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-4 text-center">
+                  <div className="text-xs text-purple-600 font-medium uppercase mb-1">Total Peças</div>
+                  <div className="text-2xl font-bold text-purple-800">{resultados.reduce((s, r) => s + (parseFloat(r.qtdPecas) || 0), 0).toLocaleString('pt-BR')}</div>
+                </div>
+                <div className="bg-green-50 rounded-lg p-4 text-center">
+                  <div className="text-xs text-green-600 font-medium uppercase mb-1">Total Barras</div>
+                  <div className="text-2xl font-bold text-green-800">{totalBarras > 0 ? totalBarras.toLocaleString('pt-BR') : '—'}</div>
+                </div>
+                <div className="bg-orange-50 rounded-lg p-4 text-center">
+                  <div className="text-xs text-orange-600 font-medium uppercase mb-1">Total KG</div>
+                  <div className="text-2xl font-bold text-orange-800">{totalKg != null ? `${totalKg.toFixed(1)} kg` : 'N/D'}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Portal: dropdown autocomplete ferramenta */}
+    {acAberto !== null && ferramentasFiltradas(itens.find(i => i.id === acAberto) || {}).length > 0 &&
+      ReactDOM.createPortal(
+        <ul
+          style={{ position: 'absolute', top: acPos.top, left: acPos.left, minWidth: acPos.width, zIndex: 99999 }}
+          className="bg-white border border-gray-200 rounded-lg shadow-xl max-h-64 overflow-y-auto"
+        >
+          {ferramentasFiltradas(itens.find(i => i.id === acAberto) || {}).map(f => {
+            const selectedItem = itens.find(i => i.id === acAberto)
+            return (
+              <li
+                key={f}
+                onMouseDown={() => selecionarFerramenta(acAberto, f)}
+                className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 hover:text-blue-700 ${
+                  selectedItem?.ferramenta === f ? 'bg-blue-50 font-semibold text-blue-700' : 'text-gray-800'
+                }`}
+              >{f}</li>
+            )
+          })}
+        </ul>,
+        document.body
+      )
+    }
+    </>
   )
 }
 

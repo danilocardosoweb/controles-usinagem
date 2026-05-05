@@ -946,18 +946,10 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
             </button>
           )
         })}
-        {selectedId && (
-          <>
-            <div className="w-px h-5 bg-slate-200 mx-1" />
-            <button onClick={rotacionar} className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 text-[10px] font-bold text-slate-600 transition-all" title="Girar no plano (R)">↻ Girar</button>
-            <button onClick={deitarFrente} className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-bold text-slate-600 transition-all" title="Deitar p/ frente — troca Altura↔Comp (T)">⤵ Deitar</button>
-            <button onClick={deitarLado} className="px-2 py-1 rounded-lg border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-300 text-[10px] font-bold text-slate-600 transition-all" title="Tombar de lado — troca Altura↔Larg (Y)">⤳ Tombar</button>
-            <button onClick={removerSelecionado} className="px-2 py-1 rounded-lg border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 text-[10px] font-bold text-red-500 transition-all" title="Remover (Del)">✕</button>
-          </>
-        )}
       </div>
 
-      {/* SVG Canvas */}
+      {/* SVG Canvas + painel lateral de ações */}
+      <div className="flex items-start gap-2">
       <div className="rounded-xl border border-slate-200 bg-slate-50 overflow-hidden select-none" style={{ maxWidth: CANVAS_W + 2 }}>
         <svg ref={svgRef} width={CANVAS_W} height={Math.max(CANVAS_H, 120)}
           viewBox={`0 0 ${CANVAS_W} ${Math.max(CANVAS_H, 120)}`}
@@ -994,35 +986,35 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
             const furoOffset = Math.min(8, pw / 6, pd / 6)
             
             return (
-              <g key={p.id} onMouseDown={(e) => handleMouseDown(e, p.id)} style={{ cursor: dragging?.id === p.id ? 'grabbing' : 'grab' }}>
+              <g key={p.id} onMouseDown={(e) => handleMouseDown(e, p.id)} onClick={(e) => e.stopPropagation()} style={{ cursor: dragging?.id === p.id ? 'grabbing' : 'grab' }}>
                 <rect x={sx} y={sy} width={pw} height={pd} rx="2"
                   fill={p.cor} fillOpacity={acessoBloqueado ? 0.4 : 0.7} 
                   stroke={acessoBloqueado ? '#ef4444' : (isSel ? '#1e293b' : p.cor)} 
                   strokeWidth={isSel ? 2 : 1}
                   strokeDasharray={acessoBloqueado ? '6 3' : (isSel ? '4 2' : 'none')} />
                 
-                {/* Indicadores de orientação dos furos */}
+                {/* Indicadores de orientação dos furos — pequenos, nos cantos, não cobrem o texto */}
                 {orientacao === 'longitudinal' ? (
-                  // Furos na frente e atrás (entrada longitudinal)
                   <>
-                    <circle cx={sx + pw / 2 - furoOffset} cy={sy + furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    <circle cx={sx + pw / 2 + furoOffset} cy={sy + furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    <circle cx={sx + pw / 2 - furoOffset} cy={sy + pd - furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    <circle cx={sx + pw / 2 + furoOffset} cy={sy + pd - furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    {/* Setas indicando direção de acesso */}
-                    <path d={`M${sx + pw/2 - 8} ${sy - 5} L${sx + pw/2} ${sy - 12} L${sx + pw/2 + 8} ${sy - 5}`} fill="none" stroke={acessoBloqueado ? '#ef4444' : '#22c55e'} strokeWidth="2" />
-                    <path d={`M${sx + pw/2 - 8} ${sy + pd + 5} L${sx + pw/2} ${sy + pd + 12} L${sx + pw/2 + 8} ${sy + pd + 5}`} fill="none" stroke={acessoBloqueado ? '#ef4444' : '#22c55e'} strokeWidth="2" />
+                    {pw > 24 && pd > 14 && <>
+                      <circle cx={sx + 6} cy={sy + 6} r={3} fill="#1e293b" opacity={0.25} />
+                      <circle cx={sx + pw - 6} cy={sy + 6} r={3} fill="#1e293b" opacity={0.25} />
+                      <circle cx={sx + 6} cy={sy + pd - 6} r={3} fill="#1e293b" opacity={0.25} />
+                      <circle cx={sx + pw - 6} cy={sy + pd - 6} r={3} fill="#1e293b" opacity={0.25} />
+                    </>}
+                    <path d={`M${sx + pw/2 - 7} ${sy - 8} L${sx + pw/2} ${sy - 16} L${sx + pw/2 + 7} ${sy - 8} Z`} fill={acessoBloqueado ? '#ef4444' : '#22c55e'} opacity={0.85} />
+                    <path d={`M${sx + pw/2 - 7} ${sy + pd + 8} L${sx + pw/2} ${sy + pd + 16} L${sx + pw/2 + 7} ${sy + pd + 8} Z`} fill={acessoBloqueado ? '#ef4444' : '#22c55e'} opacity={0.85} />
                   </>
                 ) : (
-                  // Furos nas laterais (entrada lateral)
                   <>
-                    <circle cx={sx + furoOffset} cy={sy + pd / 2 - furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    <circle cx={sx + furoOffset} cy={sy + pd / 2 + furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    <circle cx={sx + pw - furoOffset} cy={sy + pd / 2 - furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    <circle cx={sx + pw - furoOffset} cy={sy + pd / 2 + furoOffset} r={furoSize} fill="#1e293b" opacity={0.6} />
-                    {/* Setas indicando direção de acesso */}
-                    <path d={`M${sx - 5} ${sy + pd/2 - 8} L${sx - 12} ${sy + pd/2} L${sx - 5} ${sy + pd/2 + 8}`} fill="none" stroke={acessoBloqueado ? '#ef4444' : '#22c55e'} strokeWidth="2" />
-                    <path d={`M${sx + pw + 5} ${sy + pd/2 - 8} L${sx + pw + 12} ${sy + pd/2} L${sx + pw + 5} ${sy + pd/2 + 8}`} fill="none" stroke={acessoBloqueado ? '#ef4444' : '#22c55e'} strokeWidth="2" />
+                    {pw > 14 && pd > 24 && <>
+                      <circle cx={sx + 6} cy={sy + 6} r={3} fill="#1e293b" opacity={0.25} />
+                      <circle cx={sx + pw - 6} cy={sy + 6} r={3} fill="#1e293b" opacity={0.25} />
+                      <circle cx={sx + 6} cy={sy + pd - 6} r={3} fill="#1e293b" opacity={0.25} />
+                      <circle cx={sx + pw - 6} cy={sy + pd - 6} r={3} fill="#1e293b" opacity={0.25} />
+                    </>}
+                    <path d={`M${sx - 8} ${sy + pd/2 - 7} L${sx - 16} ${sy + pd/2} L${sx - 8} ${sy + pd/2 + 7} Z`} fill={acessoBloqueado ? '#ef4444' : '#22c55e'} opacity={0.85} />
+                    <path d={`M${sx + pw + 8} ${sy + pd/2 - 7} L${sx + pw + 16} ${sy + pd/2} L${sx + pw + 8} ${sy + pd/2 + 7} Z`} fill={acessoBloqueado ? '#ef4444' : '#22c55e'} opacity={0.85} />
                   </>
                 )}
                 
@@ -1034,13 +1026,13 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
                   </g>
                 )}
                 
-                {pw > 30 && pd > 16 && (
-                  <text x={sx + pw / 2} y={sy + pd / 2} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(10, pw / 6), fill: '#1e293b', fontWeight: 800, pointerEvents: 'none' }}>
+                {pw > 30 && pd > 24 && (
+                  <text x={sx + pw / 2} y={sy + pd / 2 - (pd > 32 ? 5 : 0)} textAnchor="middle" dominantBaseline="central" style={{ fontSize: Math.min(10, pw / 6), fill: '#1e293b', fontWeight: 800, pointerEvents: 'none' }}>
                     {p.titulo}
                   </text>
                 )}
-                {pw > 40 && pd > 28 && (
-                  <text x={sx + pw / 2} y={sy + pd / 2 + 10} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 8, fill: '#475569', pointerEvents: 'none', fontFamily: 'monospace' }}>
+                {pw > 40 && pd > 32 && (
+                  <text x={sx + pw / 2} y={sy + pd / 2 + 8} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 8, fill: '#475569', pointerEvents: 'none', fontFamily: 'monospace' }}>
                     {(p.w * 100).toFixed(0)}×{(p.d * 100).toFixed(0)}cm
                   </text>
                 )}
@@ -1055,6 +1047,28 @@ const TruckManualEditor2D = ({ caminhao, filaItens = [], folgaPerimetroCm = 10, 
             </g>
           )}
         </svg>
+      </div>
+
+      {/* Painel lateral de ações */}
+      <div className="flex flex-col gap-1.5 pt-1 w-14">
+        {selectedId && (
+          <>
+            <button onClick={rotacionar} className="w-full py-1.5 rounded border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 text-[9px] font-bold text-slate-600 transition-all leading-tight" title="Girar no plano (R)">↻<br/>Girar</button>
+            <button onClick={deitarFrente} className="w-full py-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[9px] font-bold text-slate-600 transition-all leading-tight" title="Deitar p/ frente (T)">⤵<br/>Deitar</button>
+            <button onClick={deitarLado} className="w-full py-1.5 rounded border border-slate-200 bg-white hover:bg-violet-50 hover:border-violet-300 text-[9px] font-bold text-slate-600 transition-all leading-tight" title="Tombar de lado (Y)">⤳<br/>Tombar</button>
+            <div className="w-full h-px bg-slate-200 my-0.5" />
+            <button onClick={removerSelecionado} className="w-full py-1.5 rounded border border-red-200 bg-white hover:bg-red-50 hover:border-red-300 text-[9px] font-bold text-red-500 transition-all leading-tight" title="Remover (Del)">✕<br/>Del</button>
+            <div className="w-full h-px bg-slate-200 my-0.5" />
+          </>
+        )}
+        {placements.length > 0 && (
+          <button
+            onClick={() => { setPlacements([]); setSelectedId(null) }}
+            className="w-full py-1.5 rounded border border-red-300 bg-red-50 hover:bg-red-100 text-[9px] font-bold text-red-600 transition-all leading-tight"
+            title="Remover todos os paletes"
+          >🗑️<br/>Todos</button>
+        )}
+      </div>
       </div>
 
       {/* Info bar */}
@@ -1221,13 +1235,17 @@ const mmToM = (valor) => {
 
 const montarItemSimulacao = (metrics) => {
   if (!metrics) return null
+  // comprimento = maior dimensão horizontal (comprimento físico do material)
+  // largura     = menor dimensão horizontal (extensão lateral do palete)
+  const largura     = Math.min(metrics.totalLarg, metrics.totalProf)
+  const comprimento = Math.max(metrics.totalLarg, metrics.totalProf)
   return {
     titulo: 'Palete configurado',
     subtitulo: `${metrics.totalPacotes} pacotes`,
-    largura: metrics.totalLarg,
-    comprimento: metrics.totalProf,
+    largura,
+    comprimento,
     altura: metrics.totalAlt,
-    volume: metrics.volume,
+    volume: largura * comprimento * metrics.totalAlt,
     quantidade: 1,
     pesoPacoteKg: metrics.pesoPacoteKg || 0,
     totalPacotes: metrics.totalPacotes || 1,
@@ -1771,6 +1789,8 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
     quantidade: '1',
   })
   const [novoItemErro, setNovoItemErro] = useState('')
+  const [modoManual, setModoManual] = useState('livre') // 'livre' | 'cadastrado'
+  const [novoItemPaleteSel, setNovoItemPaleteSel] = useState('') // "ferramenta|comprimento_mm"
   const [romaneioPaletes, setRomaneioPaletes] = useState([])
   const [romaneioLoading, setRomaneioLoading] = useState(false)
   const [romaneioErro, setRomaneioErro] = useState('')
@@ -1784,6 +1804,9 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const [ferramentasCfgData, setFerramentasCfgData] = useState([])
   const [paleteConfigData, setPaleteConfigData] = useState([]) // configs de palete de todas as ferramentas
   const [racksEmCargas, setRacksEmCargas] = useState(new Set()) // racks já vinculados a cargas confirmadas
+  const [secaoItensAberta, setSecaoItensAberta] = useState(true)
+  const [secaoRomaneiOsAberta, setSecaoRomaneiOsAberta] = useState(true)
+  const [secaoManualAberta, setSecaoManualAberta] = useState(false)
 
   const fetchRacksEmCargas = useCallback(async () => {
     try {
@@ -2301,9 +2324,13 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
   const calcularDimensoesDaConfig = useCallback((cfg) => {
     const dims = calcularDimensoesPalete(cfg)
     if (!dims) return null
+    // comprimento = maior dimensão horizontal (sempre o comprimento físico do material)
+    // largura     = menor dimensão horizontal (extensão lateral do palete)
+    const horiz1 = dims.larguraM    // spanX
+    const horiz2 = dims.comprimentoM // spanZ
     return {
-      largura: dims.larguraM.toFixed(2),      // eixo X (lado a lado dos pacotes)
-      comprimento: dims.comprimentoM.toFixed(2), // eixo Z (comprimento do material)
+      largura: Math.min(horiz1, horiz2).toFixed(2),
+      comprimento: Math.max(horiz1, horiz2).toFixed(2),
       altura: dims.alturaM.toFixed(2),
     }
   }, [])
@@ -2834,22 +2861,69 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
         setFilaItens(filaRestaurada)
       }
 
-      if (sim.modo === 'manual' && itens?.length) {
-        const restored = itens.map(it => ({
-          id: `loaded_${it.id}`,
-          itemIdx: it.item_idx,
-          titulo: it.titulo,
-          cor: it.cor || ITEM_COLORS[it.item_idx % ITEM_COLORS.length],
-          w: Number(it.largura),
-          d: Number(it.profundidade),
-          alt: Number(it.altura),
-          x: Number(it.pos_x),
-          z: Number(it.pos_z),
-          camada: it.camada || 0,
-          yCalc: Number(it.y_calculado) || 0,
-        }))
-        setLoadedPlacements(restored)
-        setManualPlacements(restored)
+      if (itens?.length) {
+        if (sim.modo === 'manual') {
+          const restored = itens.map(it => ({
+            id: `loaded_${it.id}`,
+            itemIdx: it.item_idx,
+            titulo: it.titulo,
+            cor: it.cor || ITEM_COLORS[it.item_idx % ITEM_COLORS.length],
+            w: Number(it.largura),
+            d: Number(it.profundidade),
+            alt: Number(it.altura),
+            x: Number(it.pos_x),
+            z: Number(it.pos_z),
+            camada: it.camada || 0,
+            yCalc: Number(it.y_calculado) || 0,
+          }))
+          setLoadedPlacements(restored)
+          setManualPlacements(restored)
+        } else {
+          // Modo automático: recalcular posições via packItensNoCaminhao
+          const cam = CAMINHOES_SIMULACAO.find(c => c.id === sim.caminhao_id) || CAMINHOES_SIMULACAO[0]
+          const filaParaPack = Object.values(
+            itens.reduce((acc, it) => {
+              const idx = it.item_idx ?? 0
+              if (!acc[idx]) {
+                acc[idx] = {
+                  id: it.item_idx,
+                  titulo: it.titulo || `Item ${idx + 1}`,
+                  comprimento: Number(it.largura) || 0,
+                  largura: Number(it.profundidade) || 0,
+                  altura: Number(it.altura) || 0,
+                  quantidade: 0,
+                }
+              }
+              acc[idx].quantidade += 1
+              return acc
+            }, {})
+          )
+          const { boxes } = packItensNoCaminhao(filaParaPack, cam, {
+            folgaPerimetroCm: sim.folga_perimetro_cm ?? 10,
+            folgaAlturaCm: sim.folga_altura_cm ?? 0,
+            considerarAltura: sim.considerar_altura ?? true,
+          })
+          // Extrair itemIdx da key "i{idx}u{u}k{n}"
+          const restored = boxes.map((b, i) => {
+            const m = String(b.key || '').match(/^i(\d+)/)
+            const itemIdx = m ? Number(m[1]) : 0
+            return {
+              id: `auto_${i}`,
+              itemIdx,
+              titulo: b.itemTitulo || `Item ${i + 1}`,
+              cor: b.cor || ITEM_COLORS[itemIdx % ITEM_COLORS.length],
+              w: b.wReal,
+              d: b.dReal,
+              alt: b.hReal,
+              x: b.xReal - b.wReal / 2,
+              z: b.zReal - b.dReal / 2,
+              camada: 0,
+              yCalc: b.yReal - b.hReal / 2,
+            }
+          })
+          setLoadedPlacements(restored)
+          setManualPlacements(restored)
+        }
       }
 
       setSimulacaoCarregadaId(sim.id)
@@ -3920,26 +3994,37 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
               {/* Coluna esquerda: fila de itens */}
               <div className="flex-1 min-w-[320px] flex flex-col gap-4">
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-amber-50">
+                  <div
+                    className="p-4 flex items-center justify-between gap-3 bg-amber-50 cursor-pointer select-none hover:bg-amber-100/60 transition-colors"
+                    onClick={() => setSecaoItensAberta(v => !v)}
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center">
                         <FaCubes className="w-4 h-4" />
                       </div>
                       <div>
-                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Itens & Paletes</p>
+                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                          Itens & Paletes
+                          {!secaoItensAberta && filaItens.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-amber-200 text-amber-800 text-[9px] font-black">{filaItens.length} itens</span>
+                          )}
+                        </p>
                         <p className="text-[10px] text-slate-500 font-bold uppercase">Selecione para carregar</p>
                       </div>
                     </div>
-                    <button
-                      onClick={handleAdicionarPaleteConfigurado}
-                      disabled={!itemBaseConfigurado}
-                      className="text-xs flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hover:shadow active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-                    >
-                      <FaPlus className="w-3 h-3" /> Capturar atual
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleAdicionarPaleteConfigurado() }}
+                        disabled={!itemBaseConfigurado}
+                        className="text-xs flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold transition-all shadow-sm hover:shadow active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                      >
+                        <FaPlus className="w-3 h-3" /> Capturar atual
+                      </button>
+                      <span className="text-slate-400 text-xs font-bold">{secaoItensAberta ? '▲' : '▼'}</span>
+                    </div>
                   </div>
                   
-                  <div className="p-4 flex flex-col gap-3">
+                  {secaoItensAberta && <div className="p-4 flex flex-col gap-3 border-t border-slate-100">
                     <div className="max-h-72 overflow-y-auto space-y-2 pr-1 scrollbar-thin scrollbar-thumb-slate-200">
                       {filaItens.length === 0 && (
                         <div className="text-xs text-amber-700 bg-amber-50/50 border border-amber-100 rounded-xl px-4 py-4 text-center font-medium">
@@ -3993,21 +4078,29 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                       <span className="text-slate-500 font-bold uppercase">Fila: <strong className="text-indigo-600 text-sm ml-1">{totalPaletesFila}</strong> un</span>
                       <span className="text-slate-500 font-bold uppercase">Volume: <strong className="text-slate-800 text-sm ml-1">{formatVolume(totalVolumeFila)}</strong></span>
                     </div>
-                  </div>
+                  </div>}
                 </section>
 
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
+                  <div
+                    className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 cursor-pointer select-none hover:bg-slate-100/60 transition-colors"
+                    onClick={() => setSecaoRomaneiOsAberta(v => !v)}
+                  >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center">
                         <FaClipboardList className="w-4 h-4" />
                       </div>
                       <div>
-                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Romaneios</p>
+                        <p className="text-sm font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                          Romaneios
+                          {!secaoRomaneiOsAberta && romaneioPaletesFiltrados.length > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[9px] font-black">{romaneioPaletesFiltrados.length} paletes</span>
+                          )}
+                        </p>
                         <p className="text-[10px] text-slate-500 font-bold uppercase">Paletes conferidos</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <select
                         value={romaneioFiltroStatus}
                         onChange={(e) => setRomaneioFiltroStatus(e.target.value)}
@@ -4025,9 +4118,10 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         <FaSync className={`w-3.5 h-3.5 ${romaneioLoading ? 'animate-spin text-indigo-600' : ''}`} />
                       </button>
                     </div>
+                    <span className="text-slate-400 text-xs font-bold self-center">{secaoRomaneiOsAberta ? '▲' : '▼'}</span>
                   </div>
                   
-                  <div className="p-4 flex flex-col gap-3">
+                  {secaoRomaneiOsAberta && <div className="p-4 flex flex-col gap-3 border-t border-slate-100">
                     {/* Filtros avançados */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {/* Busca geral */}
@@ -4155,24 +4249,36 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                                 </div>
                               </div>
                               
-                              {/* Info + Dims numa linha */}
-                              <div className="px-2.5 pb-1.5 pl-3 flex items-center gap-2">
-                                <span className="text-[9px] text-slate-400 truncate max-w-[120px]">{entrada.romaneioNumero} · {entrada.clientes.length ? entrada.clientes[0] : entrada.romaneioCliente || '—'}</span>
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  <input type="text" value={dims.largura} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'largura', e.target.value)} placeholder="L" className="w-14 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-center focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none" />
-                                  <span className="text-slate-300 text-[9px]">×</span>
-                                  <input type="text" value={dims.comprimento} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'comprimento', e.target.value)} placeholder="C" className={`w-14 rounded px-1 py-0.5 text-[10px] text-center outline-none ${entrada.comprimentoAcabadoMm > 0 ? 'border border-amber-300 bg-amber-50/60 focus:ring-1 focus:ring-amber-200' : 'border border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100'}`} />
-                                  <span className="text-slate-300 text-[9px]">×</span>
-                                  <input type="text" value={dims.altura} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'altura', e.target.value)} placeholder="A" className="w-14 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-center focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none" />
-                                  <input type="number" min="1" value={dims.quantidade || '1'} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'quantidade', e.target.value)} className="w-10 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-bold text-center focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none flex-shrink-0" />
+                              {/* Info + Dims numa linha compacta */}
+                              <div className="px-2.5 pb-1.5 pl-3 flex items-center gap-1.5">
+                                <span className="text-[9px] text-slate-400 truncate flex-1 min-w-0">{entrada.romaneioNumero} · {entrada.clientes.length ? entrada.clientes[0] : entrada.romaneioCliente || '—'}</span>
+                                <div className="flex items-end gap-1 flex-shrink-0">
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span className="text-[7px] font-bold text-slate-400 uppercase">Larg</span>
+                                    <input type="text" value={dims.largura} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'largura', e.target.value)} placeholder="0.00" title="Largura do palete (m)" className="w-12 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-center focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none" />
+                                  </div>
+                                  <span className="text-slate-300 text-[9px] mb-1">×</span>
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span className="text-[7px] font-bold text-slate-400 uppercase">Comp</span>
+                                    <input type="text" value={dims.comprimento} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'comprimento', e.target.value)} placeholder="0.00" title="Comprimento do material (m)" className={`w-12 rounded px-1 py-0.5 text-[10px] text-center outline-none ${entrada.comprimentoAcabadoMm > 0 ? 'border border-amber-300 bg-amber-50/60 focus:ring-1 focus:ring-amber-200' : 'border border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100'}`} />
+                                  </div>
+                                  <span className="text-slate-300 text-[9px] mb-1">×</span>
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span className="text-[7px] font-bold text-slate-400 uppercase">Alt</span>
+                                    <input type="text" value={dims.altura} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'altura', e.target.value)} placeholder="0.00" title="Altura total do palete (m)" className="w-12 border border-slate-200 rounded px-1 py-0.5 text-[10px] text-center focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none" />
+                                  </div>
+                                  <div className="flex flex-col items-center gap-0.5">
+                                    <span className="text-[7px] font-bold text-slate-400 uppercase">Qtd</span>
+                                    <input type="number" min="1" value={dims.quantidade || '1'} onChange={(e) => handleRomaneioDimensaoChange(entrada.key, 'quantidade', e.target.value)} title="Quantidade de paletes" className="w-9 border border-slate-200 rounded px-1 py-0.5 text-[10px] font-bold text-center focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 outline-none" />
+                                  </div>
+                                  <button
+                                    onClick={() => handleAdicionarRomaneioPalete(entrada)}
+                                    disabled={jaAdicionado}
+                                    className={`mb-0 px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all flex-shrink-0 self-end ${jaAdicionado ? 'bg-emerald-100 text-emerald-500 cursor-not-allowed' : 'bg-slate-800 text-white hover:bg-indigo-600 active:scale-95'}`}
+                                  >
+                                    {jaAdicionado ? '✓' : '+'}
+                                  </button>
                                 </div>
-                                <button
-                                  onClick={() => handleAdicionarRomaneioPalete(entrada)}
-                                  disabled={jaAdicionado}
-                                  className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all flex-shrink-0 ${jaAdicionado ? 'bg-emerald-100 text-emerald-500 cursor-not-allowed' : 'bg-slate-800 text-white hover:bg-indigo-600 active:scale-95'}`}
-                                >
-                                  {jaAdicionado ? '✓' : '+'}
-                                </button>
                               </div>
                               {erroDim && <p className="text-[8px] font-bold text-red-500 text-center pb-1">{erroDim}</p>}
                             </div>
@@ -4180,17 +4286,119 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         })
                       )}
                     </div>
-                  </div>
+                  </div>}
                 </section>
 
                 <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-3 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50">
-                    <div className="w-6 h-6 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center">
-                      <FaEdit className="w-3 h-3" />
+                  <div
+                    className="p-3 flex items-center justify-between gap-2 bg-slate-50/50 cursor-pointer select-none hover:bg-slate-100/60 transition-colors"
+                    onClick={() => setSecaoManualAberta(v => !v)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-lg bg-slate-200 text-slate-600 flex items-center justify-center">
+                        <FaEdit className="w-3 h-3" />
+                      </div>
+                      <p className="text-[11px] font-black text-slate-700 uppercase tracking-tight">Cadastro Manual Extra</p>
                     </div>
-                    <p className="text-[11px] font-black text-slate-700 uppercase tracking-tight">Cadastro Manual Extra</p>
+                    <span className="text-slate-400 text-xs font-bold">{secaoManualAberta ? '▲' : '▼'}</span>
                   </div>
-                  <div className="p-4 space-y-3">
+                  {secaoManualAberta && <div className="p-4 space-y-3 border-t border-slate-100">
+                    {/* Toggle modo */}
+                    <div className="flex rounded-lg overflow-hidden border border-slate-200 text-[10px] font-black uppercase">
+                      <button
+                        onClick={() => setModoManual('cadastrado')}
+                        className={`flex-1 py-1.5 transition-colors ${modoManual === 'cadastrado' ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        📦 Palete cadastrado
+                      </button>
+                      <button
+                        onClick={() => setModoManual('livre')}
+                        className={`flex-1 py-1.5 transition-colors ${modoManual === 'livre' ? 'bg-slate-800 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                      >
+                        ✏️ Dimensões livres
+                      </button>
+                    </div>
+
+                    {/* Seletor de palete cadastrado */}
+                    {modoManual === 'cadastrado' && (() => {
+                      const ferramentasUnicas = [...new Map(
+                        paleteConfigData.map(c => [String(c.ferramenta).toUpperCase(), c.ferramenta])
+                      ).entries()].sort((a, b) => a[0].localeCompare(b[0]))
+                      const ferrSel = novoItemPaleteSel.split('|')[0] || ''
+                      const compSel = novoItemPaleteSel.split('|')[1] || ''
+                      const comprimentosParaFerr = paleteConfigData
+                        .filter(c => String(c.ferramenta).toUpperCase() === ferrSel.toUpperCase())
+                        .sort((a, b) => Number(a.comprimento_mm || 0) - Number(b.comprimento_mm || 0))
+                      return (
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <span className="absolute -top-1.5 left-2 bg-white px-1 text-[8px] font-black text-slate-400 uppercase">Ferramenta</span>
+                            <select
+                              value={ferrSel}
+                              onChange={(e) => {
+                                const ferr = e.target.value
+                                setNovoItemPaleteSel(ferr ? `${ferr}|` : '')
+                                setNovoItem(prev => ({ ...prev, titulo: ferr || prev.titulo }))
+                              }}
+                              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold bg-white focus:border-slate-500 focus:ring-1 focus:ring-slate-200 outline-none"
+                            >
+                              <option value="">— Selecione a ferramenta —</option>
+                              {ferramentasUnicas.map(([key, val]) => (
+                                <option key={key} value={key}>{val}</option>
+                              ))}
+                            </select>
+                          </div>
+                          {ferrSel && (
+                            <div className="relative">
+                              <span className="absolute -top-1.5 left-2 bg-white px-1 text-[8px] font-black text-slate-400 uppercase">Comprimento</span>
+                              <select
+                                value={compSel}
+                                onChange={(e) => {
+                                  const comp = e.target.value
+                                  const chave = `${ferrSel}|${comp}`
+                                  setNovoItemPaleteSel(chave)
+                                  const cfg = paleteConfigData.find(c =>
+                                    String(c.ferramenta).toUpperCase() === ferrSel.toUpperCase() &&
+                                    String(c.comprimento_mm || '') === comp
+                                  )
+                                  if (cfg) {
+                                    const dims = calcularDimensoesDaConfig(cfg)
+                                    if (dims) {
+                                      setNovoItem(prev => ({
+                                        ...prev,
+                                        titulo: comp ? `${ferrSel} · ${comp}mm` : ferrSel,
+                                        largura: dims.largura,
+                                        comprimento: dims.comprimento,
+                                        altura: dims.altura,
+                                      }))
+                                    }
+                                  }
+                                }}
+                                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold bg-white focus:border-slate-500 focus:ring-1 focus:ring-slate-200 outline-none"
+                              >
+                                <option value="">— Selecione o comprimento —</option>
+                                {comprimentosParaFerr.map(c => (
+                                  <option key={c.comprimento_mm ?? 'default'} value={String(c.comprimento_mm || '')}>
+                                    {c.comprimento_mm ? `${c.comprimento_mm} mm` : 'Padrão (sem comprimento)'}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                          {novoItemPaleteSel && novoItem.largura && (
+                            <div className="flex gap-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-[10px] font-bold text-slate-600">
+                              <span>L: <strong>{novoItem.largura}m</strong></span>
+                              <span>×</span>
+                              <span>C: <strong>{novoItem.comprimento}m</strong></span>
+                              <span>×</span>
+                              <span>A: <strong>{novoItem.altura}m</strong></span>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Campos comuns */}
                     <div className="grid grid-cols-5 gap-2">
                       <div className="col-span-5 sm:col-span-4 relative">
                         <span className="absolute -top-1.5 left-2 bg-white px-1 text-[8px] font-black text-slate-400 uppercase">Descrição</span>
@@ -4202,22 +4410,22 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                       </div>
                       <div className="col-span-5 sm:col-span-2 relative">
                         <span className="absolute -top-1.5 left-2 bg-white px-1 text-[8px] font-black text-slate-400 uppercase">Larg (m)</span>
-                        <input name="largura" value={novoItem.largura} onChange={handleNovoItemChange} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-center focus:border-slate-500 focus:ring-1 focus:ring-slate-200 outline-none" />
+                        <input name="largura" value={novoItem.largura} onChange={handleNovoItemChange} readOnly={modoManual === 'cadastrado'} className={`w-full border rounded-lg px-3 py-2 text-xs font-medium text-center focus:ring-1 outline-none ${modoManual === 'cadastrado' ? 'bg-slate-50 border-slate-200 text-slate-500 cursor-default' : 'border-slate-300 focus:border-slate-500 focus:ring-slate-200'}`} />
                       </div>
                       <div className="col-span-5 sm:col-span-2 relative">
                         <span className="absolute -top-1.5 left-2 bg-white px-1 text-[8px] font-black text-slate-400 uppercase">Comp (m)</span>
-                        <input name="comprimento" value={novoItem.comprimento} onChange={handleNovoItemChange} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-center focus:border-slate-500 focus:ring-1 focus:ring-slate-200 outline-none" />
+                        <input name="comprimento" value={novoItem.comprimento} onChange={handleNovoItemChange} readOnly={modoManual === 'cadastrado'} className={`w-full border rounded-lg px-3 py-2 text-xs font-medium text-center focus:ring-1 outline-none ${modoManual === 'cadastrado' ? 'bg-slate-50 border-slate-200 text-slate-500 cursor-default' : 'border-slate-300 focus:border-slate-500 focus:ring-slate-200'}`} />
                       </div>
                       <div className="col-span-5 sm:col-span-1 relative">
                         <span className="absolute -top-1.5 left-2 bg-white px-1 text-[8px] font-black text-slate-400 uppercase">Alt (m)</span>
-                        <input name="altura" value={novoItem.altura} onChange={handleNovoItemChange} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-medium text-center focus:border-slate-500 focus:ring-1 focus:ring-slate-200 outline-none" />
+                        <input name="altura" value={novoItem.altura} onChange={handleNovoItemChange} readOnly={modoManual === 'cadastrado'} className={`w-full border rounded-lg px-3 py-2 text-xs font-medium text-center focus:ring-1 outline-none ${modoManual === 'cadastrado' ? 'bg-slate-50 border-slate-200 text-slate-500 cursor-default' : 'border-slate-300 focus:border-slate-500 focus:ring-slate-200'}`} />
                       </div>
                     </div>
                     {novoItemErro && <p className="text-[10px] font-bold text-red-500 uppercase text-center bg-red-50 py-1 rounded">{novoItemErro}</p>}
                     <button onClick={handleAdicionarItemManual} className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-sm active:scale-95">
                       <FaPlus className="w-3 h-3" /> Adicionar à Fila
                     </button>
-                  </div>
+                  </div>}
                 </section>
               </div>
 
@@ -4686,7 +4894,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
 
                 {/* ─── VIEW: RELATÓRIO PARA IMPRESSÃO ─── */}
                 {showExportView && (() => {
-                  const placements = modoCubagem === 'manual' ? manualPlacements : []
+                  const placements = manualPlacements
                   const sorted = [...placements].sort((a, b) => (a.camada || 0) - (b.camada || 0) || a.x - b.x || a.z - b.z)
                   const numbered = sorted.map((p, i) => ({ ...p, _num: i + 1 }))
                   const folgaLin = Math.max(0, Number(folgaPerimetroCm) || 0) / 100
@@ -4695,7 +4903,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                   const altCam = caminhaoAtual.altura
                   const compU = Math.max(0.1, compCam - folgaLin * 2)
                   const largU = Math.max(0.1, largCam - folgaLin * 2)
-                  const totalPaletes = modoCubagem === 'manual' ? placements.length : filaItens.reduce((a, i) => a + (Number(i.quantidade) || 0), 0)
+                  const totalPaletes = placements.length > 0 ? placements.length : filaItens.reduce((a, i) => a + (Number(i.quantidade) || 0), 0)
                   const pesoTotal = totalPesoCargaKg ? (totalPesoCargaKg / 1000).toFixed(2) + ' t' : '—'
 
                   // SVG rendering helpers
@@ -4759,7 +4967,7 @@ export const PaleteConteudo = ({ ferramenta, comprimento, isAdmin = false, onClo
                         </div>
                       </div>
 
-                      {modoCubagem === 'manual' && numbered.length > 0 && (
+                      {numbered.length > 0 && (
                         <>
                           {/* ── TABELA DE ITENS ── */}
                           <h2 className="text-[11px] font-black text-slate-800 uppercase tracking-tight mb-2 flex items-center gap-1.5">
